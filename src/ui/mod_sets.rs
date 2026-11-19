@@ -7,27 +7,20 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use egui::{Align, CornerRadius, Layout, RichText, Stroke, Ui, vec2};
+use egui::{Align, Layout, Ui, vec2};
 
 use super::content::ModJobDone;
 use super::nav::Nav;
-use super::widgets::{self as w, Lead};
+use crate::design::kit;
+use crate::design::tokens::{self as tk, Tokens};
 use super::{App, Confirm, ConfirmAction, Modal, ToastKind};
 use crate::bisect::{self, Answer, Bisect, StepKind};
 use crate::instance::Instance;
 use crate::keymap::Action;
 use crate::mod_sets::{self, Entry, ModSets};
 use crate::task::{Promise, Task};
-use crate::design::Theme;
 
-const SETS: &str = "\u{f0328}";
-const SEARCH: &str = "\u{f0349}";
-const FOUND: &str = "\u{f012c}";
-const NOT_FOUND: &str = "\u{f02d7}";
-const SAVE_INTO: &str = "save currently enabled mods to set";
-const TICKED: &str = "\u{f0132}";
-const UNTICKED: &str = "\u{f0131}";
-const WARN: &str = "\u{f0026}";
+const SAVE_INTO: &str = "save enabled mods to set";
 
 /// How often the sets and search files are checked for changes.
 const RECHECK: Duration = Duration::from_millis(500);
@@ -308,11 +301,25 @@ fn list_titles(names: &HashMap<String, String>, keys: &[String]) -> String {
 
 // -- the bar in the mods tab ----------------------------------------------------
 
+/// Text that leads somewhere (a set's name opens the sets): `text_strong`, accent when hot.
+fn link_text(ui: &mut Ui, t: &Tokens, text: &str, font: egui::FontId) -> egui::Response {
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font, egui::Color32::PLACEHOLDER);
+    job.wrap.max_width = ui.available_width().max(40.0);
+    job.wrap.max_rows = 1;
+    let g = ui.painter().layout_job(job);
+    let (rect, resp) = ui.allocate_exact_size(g.size(), egui::Sense::click());
+    let c = crate::design::motion::color(ui.ctx(), resp.id, resp.hovered() || resp.has_focus(), t.text_strong, t.accent);
+    ui.painter().galley(rect.min, g, c);
+    let label = text.to_string();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, &label));
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 /// The mods tab's top line: the active set (and whether the mods still match it), the
 /// sets dialog, and the search for the breaking mod. `found` is the mods with their
 /// keys and titles, once read.
 pub fn bar(app: &mut App, ui: &mut Ui, inst: &Instance, found: Option<(&[Entry], &HashMap<String, String>)>) {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
     let empty = HashMap::new();
     let names = found.map_or(&empty, |(_, n)| n);
@@ -326,7 +333,8 @@ pub fn bar(app: &mut App, ui: &mut Ui, inst: &Instance, found: Option<(&[Entry],
     let sets = match sets {
         Ok(s) => s,
         Err(e) => {
-            w::para(ui, RichText::new(format!("Couldn't read the mod sets: {e}")).color(t.red));
+            super::content::padded(ui, |ui| kit::text::body_colored(ui, &format!("Couldn't read the mod sets: {e}"), t.error()));
+            ui.add_space(tk::GAP);
             return;
         }
     };
@@ -345,53 +353,88 @@ pub fn bar(app: &mut App, ui: &mut Ui, inst: &Instance, found: Option<(&[Entry],
     let modified = found.is_some_and(|(e, _)| sets.modified(e));
     let mut open = false;
     let (mut update, mut revert, mut find) = (false, false, false);
-    ui.horizontal(|ui| {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            find = w::button(ui, &format!("{SEARCH} find breaking mod…")).on_hover_text("turn mods off half at a time to find the one causing a problem").clicked();
-            open |= w::button(ui, "sets…").clicked();
+    let tools = [kit::Button::new("sets"), kit::Button::new("find breaking mod")];
+    let fixes = [kit::Button::new("update set"), kit::Button::new("revert")];
+    let show_fixes = modified && busy.is_none();
+    super::content::padded(ui, |ui| {
+        let row_w = |bs: &[kit::Button]| bs.iter().map(|b| b.width(ui, &t)).sum::<f32>() - tk::LINE;
+        // The set's side: its name and, when the mods differ from it, what to do about that.
+        let left_w = match sets.active() {
+            Some(set) => {
+                let name = ui.painter().layout_no_wrap(set.name.clone(), crate::design::fonts::heading(tk::SIZE_HEADING_SMALL), t.text_strong).size().x;
+                let fix = if modified { kit::text::caption_galley(ui, "modified", t.text_muted).size().x + tk::GAP + if show_fixes { row_w(&fixes) + tk::GAP } else { 0.0 } } else { 0.0 };
+                kit::text::caption_galley(ui, "mod set", t.text_muted).size().x + tk::GAP + name + tk::GAP + fix
+            }
+            None => tk::LIST_TITLE_MIN * 2.0,
+        };
+        // Too narrow for both sides on one line: the sets and the search go on a line of their own.
+        let one_line = left_w + tk::GUTTER + row_w(&tools) <= ui.available_width();
+        let tool_row = |ui: &mut Ui| kit::button_row(ui, &t, &tools);
+        let mut tool = None;
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), tk::BUTTON_HEIGHT), Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = tk::GAP;
+            if one_line {
+                tool = tool_row(ui);
+            }
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                ui.label(RichText::new(SETS).color(t.muted));
+                ui.spacing_mut().item_spacing.x = tk::GAP;
+                kit::caption(ui, &t, "mod set");
                 match sets.active() {
                     Some(set) => {
-                        let name = RichText::new(&set.name).font(crate::design::fonts::bold(t.body_size())).color(t.fg_light);
-                        open |= ui.add(egui::Label::new(name).sense(egui::Sense::click()).truncate()).on_hover_text("mod sets").on_hover_cursor(egui::CursorIcon::PointingHand).clicked();
+                        open |= link_text(ui, &t, &set.name, crate::design::fonts::heading(tk::SIZE_HEADING_SMALL)).clicked();
                         if modified {
-                            ui.label(RichText::new("·").color(t.muted));
-                            ui.label(RichText::new("modified").color(t.yellow)).on_hover_text("the enabled mods differ from the set: update the set, or revert the mods");
-                            if busy.is_none() {
-                                update = w::button(ui, "update set").on_hover_text(format!("save the currently enabled mods to “{}”", set.name)).clicked();
-                                revert = w::button(ui, "revert").on_hover_text(format!("switch the mods back to match “{}”", set.name)).clicked();
+                            kit::caption_colored(ui, "modified", t.warning()).on_hover_text("the enabled mods differ from the set: update the set, or revert the mods");
+                            if show_fixes {
+                                match kit::button_row(ui, &t, &fixes) {
+                                    Some(0) => update = true,
+                                    Some(_) => revert = true,
+                                    None => {}
+                                }
                             }
                         }
                     }
                     None if sets.sets.is_empty() => {
-                        ui.add(egui::Label::new(RichText::new("no mod sets · save these mods as one to switch between arrangements").color(t.muted)).truncate());
+                        ui.add(egui::Label::new(egui::RichText::new("None yet. Save these mods as one to switch between arrangements.").font(crate::design::fonts::text(tk::SIZE_BODY)).color(t.text_muted)).truncate());
                     }
                     None => {
-                        ui.add(egui::Label::new(RichText::new(format!("no set chosen · {} saved", sets.sets.len())).color(t.muted)).truncate());
+                        ui.add(egui::Label::new(egui::RichText::new(format!("None chosen · {} saved", sets.sets.len())).font(crate::design::fonts::text(tk::SIZE_BODY)).color(t.text_muted)).truncate());
                     }
                 }
             });
         });
+        if !one_line {
+            ui.add_space(tk::GAP);
+            tool = ui.horizontal(|ui| tool_row(ui)).inner;
+        }
+        match tool {
+            Some(0) => open = true,
+            Some(_) => find = true,
+            None => {}
+        }
     });
+    ui.add_space(tk::GAP);
 
     // Mods the active set has never seen are off; say so once, with a way to add them.
     if let (Some(set), Some((entries, _))) = (sets.active(), found) {
         let unseen = set.unseen(entries);
         if !unseen.is_empty() && busy.is_none() {
             let (mut add, mut keep) = (false, false);
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    keep = w::button(ui, "keep them off").clicked();
-                    add = w::button(ui, "turn them on").clicked();
+            super::content::padded(ui, |ui| {
+                ui.allocate_ui_with_layout(vec2(ui.available_width(), tk::BUTTON_HEIGHT), Layout::right_to_left(Align::Center), |ui| {
+                    match kit::button_row(ui, &t, &[kit::Button::new("turn them on"), kit::Button::new("keep them off")]) {
+                        Some(0) => add = true,
+                        Some(_) => keep = true,
+                        None => {}
+                    }
+                    ui.add_space(tk::GAP);
                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                         let what = if unseen.len() == 1 { "1 mod is".to_string() } else { format!("{} mods are", unseen.len()) };
                         let text = format!("{what} new to “{}” and off: {}", set.name, list_titles(names, &unseen));
-                        ui.add(egui::Label::new(RichText::new(text).color(t.muted)).truncate());
+                        ui.add(egui::Label::new(egui::RichText::new(text).font(crate::design::fonts::text(tk::SIZE_BODY)).color(t.text_strong)).truncate());
                     });
                 });
             });
+            ui.add_space(tk::GAP);
             if add {
                 let paths: Vec<_> = entries.iter().filter(|e| unseen.contains(&e.key)).map(|e| e.file.path.clone()).collect();
                 let mut failed = None;
@@ -522,10 +565,9 @@ pub fn open_sets(app: &mut App, ctx: &egui::Context, inst: &Instance, names: Has
 
 /// The sets dialog. Returns true when it should close.
 pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
-    let screen = ctx.content_rect();
-    ui.set_width((screen.width() - 80.0).clamp(460.0, 820.0));
+    ui.set_max_width(tk::SHEET_WIDTH_WIDE);
     if let Some(p) = &s.scan
         && let Some(r) = p.take()
     {
@@ -549,10 +591,13 @@ pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
         _ => Vec::new(),
     };
 
-    w::heading(ui, &t, "Mod sets");
-    ui.add_space(4.0);
-    w::para(ui, RichText::new(format!("Named arrangements of {}'s mods: tick a set's mods on the right. Switching to a set turns mods on and off; nothing is removed.", inst.name)).color(t.muted));
-    ui.add_space(10.0);
+    kit::heading(ui, &t, "Mod sets");
+    ui.add_space(tk::UNIT);
+    ui.scope(|ui| {
+        ui.set_max_width(tk::SETTING_DESCRIPTION_WIDTH);
+        kit::body_muted(ui, &t, &format!("Named arrangements of {}'s mods: tick a set's mods on the right. Switching to a set turns mods on and off; nothing is removed.", inst.name));
+    });
+    ui.add_space(tk::GUTTER);
 
     let kb = app.modal_nav();
     let key = |n: Nav| kb == Some(n);
@@ -577,26 +622,38 @@ pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
     let blocked = switch_blocked(app, &inst);
     let mut close = false;
     let (mut do_switch, mut do_update, mut do_delete) = (key(Nav::Activate), key(Nav::Copy), key(Nav::Delete));
-    let height = (screen.height() - 300.0).clamp(220.0, 420.0);
 
-    ui.columns(2, |cols| {
-        // -- left: the sets, and a new one from the mods as they are
-        let ui = &mut cols[0];
-        w::section(ui, &t, "sets");
-        egui::ScrollArea::vertical().id_salt("mod-sets").max_height(height - 50.0).auto_shrink([false, true]).show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 2.0;
+    // Two panes sharing a hairline, down to the footer.
+    let footer = tk::BUTTON_HEIGHT + tk::GUTTER * 2.0;
+    let area = ui.available_rect_before_wrap();
+    let area = egui::Rect::from_min_size(area.min, vec2(area.width(), (area.height() - footer).max(tk::SETTING_ROW_HEIGHT * 4.0)));
+    let left_w = tk::SETS_PANE_WIDTH.min((area.width() * 0.4).floor());
+    let line_x = area.left() + left_w;
+    let left = egui::Rect::from_min_max(area.min, egui::pos2(line_x, area.bottom()));
+    let right = egui::Rect::from_min_max(egui::pos2(line_x + tk::LINE, area.top()), area.max);
+
+    // -- left: the sets, and a new one from the mods as they are
+    ui.scope_builder(egui::UiBuilder::new().max_rect(left).layout(Layout::top_down(Align::Min)), |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let count = sets.sets.len().to_string();
+        kit::SectionLabel::new(1, "sets").aside(&count).show(ui, &t);
+        let list_h = (ui.available_height() - tk::FIELD_HEIGHT - tk::GAP * 2.0).max(tk::LIST_ROW_HEIGHT_COMPACT);
+        egui::ScrollArea::vertical().id_salt("mod-sets").max_height(list_h).auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
             if sets.sets.is_empty() {
-                w::para(ui, RichText::new("none yet: name the mods as they are now below").color(t.muted));
+                super::content::padded(ui, |ui| kit::loading(ui, &t, "none yet"));
             }
+            let mut list = kit::HoverList::begin(ui, kit::Variant::Compact).indent(tk::GUTTER + tk::HOVER_SHIFT_COMPACT);
             for (n, set) in sets.sets.iter().enumerate() {
                 let on = n == s.selected;
-                let mut right = format!("{} on", set.on.len());
+                let desc = format!("{} on", set.on.len());
+                let mut row = kit::HoverRow::new(("mod-set", &set.name), &set.name).description(&desc).selected(on).hot(on && !s.in_mods);
                 if set.name == sets.active {
-                    right = format!("active · {right}");
+                    row = row.badge("active", t.ok());
                 }
-                let r = w::lead_row(ui, &t, on, Lead::Glyph(SETS), &set.name, &right, None);
-                if on && !s.in_mods {
-                    w::focus_mark(ui, &t, r.rect);
+                let r = list.row(ui, &t, row);
+                if on && !s.in_mods && moved.is_some() {
+                    r.scroll_to_me(None);
                 }
                 if r.clicked() {
                     s.selected = n;
@@ -606,94 +663,99 @@ pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
                     do_switch = true;
                 }
             }
+            list.end(ui);
         });
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            let r = w::text_input(ui, &mut s.new_name, "new set from the mods as they are", ui.available_width() - 60.0, std::mem::take(&mut s.focus_new));
-            let ok = !s.new_name.trim().is_empty() && s.entries.is_some();
-            let add = ui.add_enabled_ui(ok, |ui| w::button(ui, "add")).inner.clicked() || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-            if add && let Some(entries) = &s.entries {
-                let name = s.new_name.trim().to_string();
-                if edit_sets(app, &inst, |x| x.add(&name, entries)) {
-                    s.new_name.clear();
-                    s.selected = sets.sets.len();
-                }
-            }
-        });
-
-        // -- right: the selected set
-        let ui = &mut cols[1];
-        let Some(set) = &current else {
-            w::empty_state(ui, &t, SETS, "save your first set", "Name a set below. A new set starts with the currently enabled mods; tick or untick mods to change the set.");
-            return;
-        };
-        w::section(ui, &t, "name");
-        ui.horizontal(|ui| {
-            let r = w::text_input(ui, &mut s.rename, "", ui.available_width() - 80.0, std::mem::take(&mut s.focus_rename));
-            let new = s.rename.trim().to_string();
-            let ok = !new.is_empty() && new != set.name;
-            let go = ui.add_enabled_ui(ok, |ui| w::button(ui, "rename")).inner.clicked() || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-            if go && edit_sets(app, &inst, |x| x.rename(&set.name, &new)) {
-                s.renaming = Some(new);
-            }
-        });
-        let mut all: Option<bool> = None;
-        w::section(ui, &t, "mods in set");
-        ui.horizontal(|ui| {
-            if let Some(entries) = &s.entries {
-                let keys: BTreeSet<&String> = entries.iter().map(|e| &e.key).collect();
-                let on = keys.iter().filter(|k| set.on.contains(**k)).count();
-                ui.label(RichText::new(format!("{on} of {} on", keys.len())).color(t.muted).size(t.body_size() - 1.0));
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if w::button(ui, "none").on_hover_text("untick the mods shown").clicked() {
-                    all = Some(false);
-                }
-                if w::button(ui, "all").on_hover_text("tick the mods shown").clicked() {
-                    all = Some(true);
+        ui.add_space(tk::GAP);
+        super::content::padded(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = tk::GAP;
+                let ok = !s.new_name.trim().is_empty() && s.entries.is_some();
+                let add_w = kit::Button::new("add").width(ui, &t);
+                let r = kit::Field::new(&mut s.new_name).hint("New set from these mods").width(ui.available_width() - add_w - tk::GAP).focus(std::mem::take(&mut s.focus_new)).show(ui, &t);
+                let add = kit::Button::new("add").enabled(ok).show(ui, &t).clicked() || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                if add && let Some(entries) = &s.entries {
+                    let name = s.new_name.trim().to_string();
+                    if edit_sets(app, &inst, |x| x.add(&name, entries)) {
+                        s.new_name.clear();
+                        s.selected = sets.sets.len();
+                    }
                 }
             });
         });
-        if s.entries.as_ref().is_some_and(|e| e.len() > 8) || !s.filter.is_empty() {
-            w::text_input(ui, &mut s.filter, "filter", ui.available_width() - 16.0, std::mem::take(&mut s.focus_filter));
-            ui.add_space(4.0);
-        }
+    });
+    kit::vline(ui.painter(), line_x, area.y_range(), t.line_strong);
+
+    // -- right: the selected set
+    ui.scope_builder(egui::UiBuilder::new().max_rect(right).layout(Layout::top_down(Align::Min)), |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let Some(set) = &current else {
+            super::content::padded(ui, |ui| kit::empty_state(ui, &t, "Save your first set", "Name a set on the left. A new set starts with the mods that are on now; tick or untick mods to change it.", None));
+            return;
+        };
+        let count = s.entries.as_ref().map(|entries| {
+            let keys: BTreeSet<&String> = entries.iter().map(|e| &e.key).collect();
+            format!("{} of {} on", keys.iter().filter(|k| set.on.contains(**k)).count(), keys.len())
+        });
+        kit::SectionLabel::new(2, &set.name).aside(count.as_deref().unwrap_or_default()).show(ui, &t);
+        ui.add_space(tk::GAP);
+        let mut all: Option<bool> = None;
+        super::content::padded(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = tk::GAP;
+                let rename_w = kit::Button::new("rename").width(ui, &t);
+                let r = kit::Field::new(&mut s.rename).label("name").width(ui.available_width() - rename_w - tk::GAP).focus(std::mem::take(&mut s.focus_rename)).show(ui, &t);
+                let new = s.rename.trim().to_string();
+                let ok = !new.is_empty() && new != set.name;
+                let go = kit::Button::new("rename").enabled(ok).show(ui, &t).clicked() || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                if go && edit_sets(app, &inst, |x| x.rename(&set.name, &new)) {
+                    s.renaming = Some(new);
+                }
+            });
+            ui.add_space(tk::GAP);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = tk::GAP;
+                let joined = [kit::Button::new("all"), kit::Button::new("none")];
+                let joined_w = joined.iter().map(|b| b.width(ui, &t)).sum::<f32>() - tk::LINE;
+                if s.entries.as_ref().is_some_and(|e| e.len() > 8) || !s.filter.is_empty() {
+                    kit::Field::new(&mut s.filter).label("filter").width(ui.available_width() - joined_w - tk::GAP).focus(std::mem::take(&mut s.focus_filter)).show(ui, &t);
+                }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| match kit::button_row(ui, &t, &joined) {
+                    Some(0) => all = Some(true),
+                    Some(_) => all = Some(false),
+                    None => {}
+                });
+            });
+        });
+        ui.add_space(tk::GAP);
+        kit::rule(ui, &t, false);
+        // Room under the list for the note, what switching does, and the buttons.
+        let below = tk::BUTTON_HEIGHT + tk::GUTTER * 3.0 + tk::SIZE_BODY * 3.0;
         match &s.entries {
             None => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(RichText::new("reading the mods…").color(t.muted));
-                });
+                super::content::padded(ui, |ui| kit::loading(ui, &t, "reading the mods"));
             }
             Some(_) => {
-                egui::ScrollArea::vertical().id_salt("mod-set-mods").max_height(height - 150.0).auto_shrink([false, true]).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 2.0;
+                egui::ScrollArea::vertical().id_salt("mod-set-mods").max_height((ui.available_height() - below).max(tk::TABLE_ROW_HEIGHT * 3.0)).auto_shrink([false, true]).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     if rows.is_empty() {
-                        w::para(ui, RichText::new(if s.filter.is_empty() { "no mods installed" } else { "no mods match the filter" }).color(t.muted));
+                        super::content::padded(ui, |ui| kit::loading(ui, &t, if s.filter.is_empty() { "no mods installed" } else { "no mods match the filter" }));
                     }
                     for (n, r) in rows.iter().enumerate() {
                         let sel = s.in_mods && n == s.mod_sel;
-                        let (glyph, mark) = match (r.on, r.needed_by.is_empty()) {
-                            (true, _) => (TICKED, t.accent),
-                            (false, false) => (WARN, t.yellow),
-                            (false, true) => (UNTICKED, t.muted),
-                        };
-                        let (right, color) = if !r.needed_by.is_empty() {
-                            (needed_label(&r.needed_by), t.yellow)
+                        // A mod a ticked one needs, unticked: the row wants a look.
+                        let (aside, color) = if !r.needed_by.is_empty() {
+                            (needed_label(&r.needed_by), None)
                         } else if r.on != r.now_on {
                             let what = if r.on { "turns on" } else { "turns off" };
-                            (if r.seen { what.to_string() } else { format!("new · {what}") }, if r.on { t.green } else { t.muted })
+                            (if r.seen { what.to_string() } else { format!("new · {what}") }, r.on.then(|| t.ok()))
                         } else if !r.seen {
-                            ("new".to_string(), t.muted)
+                            ("new".to_string(), None)
                         } else {
-                            (String::new(), t.muted)
+                            (String::new(), None)
                         };
-                        let row = w::check_row(ui, &t, sel, r.on, glyph, mark, &r.title, &right, color);
-                        if sel {
-                            w::focus_mark(ui, &t, row.rect);
-                            if moved.is_some() {
-                                row.scroll_to_me(None);
-                            }
+                        let (row, _) = kit::QuietRow::new(("set-mod", &r.key), &r.title).check(r.on).aside(&aside, color).attention(!r.needed_by.is_empty()).hot(sel).selected(sel).show(ui, &t, |_| ());
+                        if sel && moved.is_some() {
+                            row.scroll_to_me(None);
                         }
                         if row.clicked() {
                             s.in_mods = true;
@@ -704,61 +766,66 @@ pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
                 });
             }
         }
-        if let Some(note) = &s.note {
-            ui.add_space(4.0);
-            w::para(ui, RichText::new(note).color(t.muted).size(t.body_size() - 1.0));
-        }
-        if let Some(on) = all {
-            let keys: Vec<String> = rows.iter().map(|r| r.key.clone()).collect();
-            let keys: Vec<String> = if on { mod_sets::with_needs(&keys, &s.needs).into_iter().collect() } else { keys };
-            if edit_sets(app, &inst, |x| x.set_mods(&set.name, &keys, on)) {
-                s.note = None;
+        ui.add_space(tk::GAP);
+        super::content::padded(ui, |ui| {
+            if let Some(note) = &s.note {
+                kit::body_muted(ui, &t, note);
+                ui.add_space(tk::UNIT);
             }
-        }
-        if let Some((k, on)) = tick.take() {
-            // Ticking a mod ticks what it needs; unticking one that others need only warns (on its row).
-            let keys: Vec<String> = if on { mod_sets::with_needs(std::slice::from_ref(&k), &s.needs).into_iter().filter(|x| *x == k || !set.on.contains(x)).collect() } else { vec![k.clone()] };
-            if edit_sets(app, &inst, |x| x.set_mods(&set.name, &keys, on)) {
-                let also: Vec<String> = keys.iter().filter(|x| **x != k).cloned().collect();
-                s.note = (!also.is_empty()).then(|| format!("Also ticked {}, which {} needs.", list_titles(&s.names, &also), title_of(&s.names, &k)));
+            if let Some(on) = all {
+                let keys: Vec<String> = rows.iter().map(|r| r.key.clone()).collect();
+                let keys: Vec<String> = if on { mod_sets::with_needs(&keys, &s.needs).into_iter().collect() } else { keys };
+                if edit_sets(app, &inst, |x| x.set_mods(&set.name, &keys, on)) {
+                    s.note = None;
+                }
             }
-        }
+            if let Some((k, on)) = tick.take() {
+                // Ticking a mod ticks what it needs; unticking one that others need only flags it (on its row).
+                let keys: Vec<String> = if on { mod_sets::with_needs(std::slice::from_ref(&k), &s.needs).into_iter().filter(|x| *x == k || !set.on.contains(x)).collect() } else { vec![k.clone()] };
+                if edit_sets(app, &inst, |x| x.set_mods(&set.name, &keys, on)) {
+                    let also: Vec<String> = keys.iter().filter(|x| **x != k).cloned().collect();
+                    s.note = (!also.is_empty()).then(|| format!("Also ticked {}, which {} needs.", list_titles(&s.names, &also), title_of(&s.names, &k)));
+                }
+            }
 
-        // What switching to the set (or, for the active one, applying it) would do; nothing when it matches.
-        ui.add_space(8.0);
-        let c = s.entries.as_ref().map(|e| set.change(e));
-        let active = set.name == sets.active;
-        if let Some(c) = c.as_ref().filter(|c| !c.is_empty()) {
-            w::para(ui, RichText::new(format!("set {}", c.summary())).color(t.fg_light));
-            ui.add_space(6.0);
-        }
-        if let Some(why) = blocked {
-            w::para(ui, RichText::new(format!("Can't switch while {why}.")).color(t.yellow));
-            ui.add_space(4.0);
-        }
-        let changes = c.as_ref().is_some_and(|c| !c.is_empty());
-        ui.horizontal_wrapped(|ui| {
-            if changes {
-                do_switch |= ui.add_enabled_ui(blocked.is_none(), |ui| w::primary_button(ui, &t, if active { "apply" } else { "switch" })).inner.clicked();
+            // What switching to the set (or, for the active one, applying it) would do; nothing when it matches.
+            let c = s.entries.as_ref().map(|e| set.change(e));
+            let active = set.name == sets.active;
+            if let Some(c) = c.as_ref().filter(|c| !c.is_empty()) {
+                kit::body(ui, &t, &format!("{} {}.", if active { "Applying it" } else { "Switching" }, c.summary()));
+                ui.add_space(tk::UNIT);
             }
-            do_update |= ui.add_enabled_ui(s.entries.is_some() && changes, |ui| w::button(ui, SAVE_INTO)).inner.clicked();
-            do_delete |= w::danger_button(ui, &t, "delete").clicked();
+            if let Some(why) = blocked {
+                kit::text::body_colored(ui, &format!("Can't switch while {why}."), t.warning());
+                ui.add_space(tk::UNIT);
+            }
+            let changes = c.as_ref().is_some_and(|c| !c.is_empty());
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = tk::GAP;
+                if changes {
+                    do_switch |= kit::Button::new(if active { "apply" } else { "switch" }).filled().enabled(blocked.is_none()).show(ui, &t).clicked();
+                }
+                do_update |= kit::Button::new(SAVE_INTO).enabled(s.entries.is_some() && changes).show(ui, &t).clicked();
+                do_delete |= kit::Button::new("delete").show(ui, &t).clicked();
+            });
         });
     });
-
-    ui.add_space(12.0);
+    ui.allocate_rect(area, egui::Sense::hover());
+    kit::rule(ui, &t, true);
+    ui.add_space(tk::GAP);
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = tk::GUTTER;
         let k = |a| app.keymap.label(a);
-        w::key_hint(ui, &t, &k(Action::Activate), "switch");
-        w::key_hint(ui, &t, &format!("{}/{}", k(Action::FocusLeft), k(Action::FocusRight)), "sets/mods");
+        kit::key_hint(ui, &t, &k(Action::Activate), "switch");
+        kit::key_hint(ui, &t, &format!("{}/{}", k(Action::FocusLeft), k(Action::FocusRight)), "sets/mods");
         if s.in_mods {
-            w::key_hint(ui, &t, &k(Action::Toggle), "tick");
+            kit::key_hint(ui, &t, &k(Action::Toggle), "tick");
         }
-        w::key_hint(ui, &t, &k(Action::Add), "new");
-        w::key_hint(ui, &t, &k(Action::Rename), "rename");
-        w::key_hint(ui, &t, &k(Action::Copy), SAVE_INTO);
-        w::key_hint(ui, &t, &k(Action::Delete), "delete");
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| close = w::button(ui, "close").clicked());
+        kit::key_hint(ui, &t, &k(Action::Add), "new");
+        kit::key_hint(ui, &t, &k(Action::Rename), "rename");
+        kit::key_hint(ui, &t, &k(Action::Copy), SAVE_INTO);
+        kit::key_hint(ui, &t, &k(Action::Delete), "delete");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| close = kit::Button::new("close").show(ui, &t).clicked());
     });
 
     let Some(set) = current else { return close };
@@ -939,17 +1006,20 @@ fn steps_for(n: usize) -> usize {
     if n <= 1 { 1 } else { (usize::BITS - (n - 1).leading_zeros()) as usize + 1 }
 }
 
-fn worlds_note(ui: &mut Ui, t: &Theme) {
-    w::para(ui, RichText::new("Test from the title screen or a new world: a world opened with mods missing can lose what those mods added. Asteria backs a world up first when that might happen.").color(t.yellow));
+/// The worlds warning, before a search starts.
+fn worlds_note(ui: &mut Ui, t: &Tokens) {
+    kit::bracketed(ui, t, "before you start", |ui| {
+        kit::body(ui, t, "Test from the title screen or a new world: a world opened with mods missing can lose what those mods added. Asteria backs a world up first when that might happen.");
+    });
 }
 
 fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
-    let screen = ctx.content_rect();
-    ui.set_width((screen.width() - 80.0).clamp(460.0, 680.0));
+    ui.set_max_width(tk::SHEET_WIDTH);
     let kb = app.modal_nav();
-    if let Some(n) = kb.filter(|n| n.is_move()).and_then(|n| n.step(s.rows.len(), Some(s.selected))) {
+    let moved = kb.filter(|n| n.is_move()).and_then(|n| n.step(s.rows.len(), Some(s.selected)));
+    if let Some(n) = moved {
         s.selected = n;
     }
     if kb == Some(Nav::Toggle)
@@ -959,53 +1029,48 @@ fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
     }
     let testing = s.rows.iter().filter(|r| r.mark == Mark::Test).count();
 
-    w::heading(ui, &t, "Find breaking mod");
-    ui.add_space(6.0);
-    w::para(ui, "Asteria turns about half the mods off at a time. You play, then say whether the problem occurred, and the suspects halve each time.");
-    ui.add_space(4.0);
+    kit::heading(ui, &t, "Find breaking mod");
+    ui.add_space(tk::UNIT);
+    kit::body(ui, &t, "Asteria turns about half the mods off at a time. You play, then say whether the problem occurred, and the suspects halve each time.");
+    ui.add_space(tk::UNIT);
     let about = if testing == 0 { "Mark at least one mod to test.".to_string() } else { format!("{testing} mods to test: about {} games. Your mods go back exactly as they are now when the search ends.", steps_for(testing)) };
-    w::para(ui, RichText::new(about).color(t.muted));
-    ui.add_space(4.0);
+    kit::body_muted(ui, &t, &about);
+    ui.add_space(tk::GUTTER);
     worlds_note(ui, &t);
-    ui.add_space(8.0);
-    w::section(ui, &t, "the enabled mods");
-    let height = (screen.height() - 360.0).clamp(160.0, 380.0);
+    ui.add_space(tk::GUTTER);
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let aside = format!("{testing} to test");
+    kit::SectionLabel::new(1, "the enabled mods").aside(&aside).show(ui, &t);
+    let height = (ui.available_height() - tk::BUTTON_HEIGHT - tk::GUTTER * 3.0).max(tk::TABLE_ROW_HEIGHT * 4.0);
     egui::ScrollArea::vertical().max_height(height).auto_shrink([false, true]).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.spacing_mut().item_spacing.y = 0.0;
         if s.rows.is_empty() {
-            w::para(ui, RichText::new("No mods are enabled.").color(t.muted));
+            super::content::padded(ui, |ui| kit::loading(ui, &t, "no mods are on"));
         }
         for (n, r) in s.rows.iter_mut().enumerate() {
             let on = n == s.selected;
-            let right = if r.first && r.mark == Mark::Test { "suspect · test".to_string() } else { r.mark.label().to_string() };
-            let glyph = match r.mark {
-                Mark::Test => SEARCH,
-                Mark::Fine => FOUND,
-                Mark::Keep => "\u{f0403}",
-            };
-            let row = w::lead_row(ui, &t, on, Lead::Glyph(glyph), &r.title, &right, None);
-            if on {
-                w::focus_mark(ui, &t, row.rect);
-                if kb.is_some_and(|k| k.is_move()) {
-                    row.scroll_to_me(None);
-                }
+            // Each mod's part in the search, as three joined buttons.
+            let aside = if r.first { "suspect" } else { "" };
+            let (row, _) = kit::QuietRow::new(("bisect-mod", &r.file), &r.title).tall().aside(aside, None).hot(on).selected(on).show(ui, &t, |ui| {
+                kit::segmented(ui, &t, &mut r.mark, &[(Mark::Test, Mark::Test.label()), (Mark::Fine, Mark::Fine.label()), (Mark::Keep, Mark::Keep.label())]);
+            });
+            if on && moved.is_some() {
+                row.scroll_to_me(None);
             }
             if row.clicked() {
-                if on {
-                    r.mark = r.mark.next();
-                }
                 s.selected = n;
             }
         }
     });
-    ui.add_space(4.0);
-    w::para(ui, RichText::new(format!("{} or a click on the selected mod marks the mod known fine (off unless needed) or keep on (on in every step).", app.keymap.label(Action::Toggle))).color(t.muted).size(t.body_size() - 1.0));
-    ui.add_space(12.0);
+    ui.add_space(tk::GUTTER);
     let mut go = kb == Some(Nav::Activate);
     let mut close = false;
     ui.horizontal(|ui| {
-        go |= ui.add_enabled_ui(testing > 0, |ui| w::primary_button(ui, &t, "start")).inner.clicked();
-        close = w::button(ui, "cancel").clicked();
+        ui.spacing_mut().item_spacing.x = tk::GAP;
+        go |= kit::Button::new("start").filled().enabled(testing > 0).show(ui, &t).clicked();
+        close = kit::Button::new("cancel").show(ui, &t).clicked();
+        ui.add_space(tk::GAP);
+        kit::key_hint(ui, &t, &app.keymap.label(Action::Toggle), "next mark");
     });
     if go && testing > 0 {
         let inst = s.inst.clone();
@@ -1027,15 +1092,15 @@ fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
 }
 
 const ANSWERS: [(Answer, &str, &str); 3] = [
-    (Answer::Broken, "Problem occurred", "the problem showed up, or the game crashed"),
-    (Answer::Works, "Problem did not occur", "the game ran fine"),
-    (Answer::Skip, "Can't tell", "try a different half of the mods instead"),
+    (Answer::Broken, "Problem occurred", "The problem showed up, or the game crashed."),
+    (Answer::Works, "Problem did not occur", "The game ran fine."),
+    (Answer::Skip, "Can't tell", "Try a different half of the mods instead."),
 ];
 
 fn ask_dialog(app: &mut App, a: &mut AskDialog, ui: &mut Ui) -> bool {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
-    ui.set_width(520.0);
+    ui.set_max_width(tk::SHEET_WIDTH);
     let Some(inst) = app.instances.iter().find(|i| i.id == a.inst_id).cloned() else { return true };
     let Some(b) = app.mod_sets.bisect(&inst).filter(|b| b.done.is_none()) else { return true };
     let kb = app.modal_nav();
@@ -1043,34 +1108,31 @@ fn ask_dialog(app: &mut App, a: &mut AskDialog, ui: &mut Ui) -> bool {
         a.choice = n;
     }
     let step = b.step.clone();
-    w::heading(ui, &t, "Did the problem occur?");
-    ui.add_space(6.0);
+    kit::heading(ui, &t, "Did the problem occur?");
+    ui.add_space(tk::GUTTER);
+    if let Some(why) = &a.why {
+        kit::bracketed(ui, &t, "the last game", |ui| kit::body(ui, &t, why));
+        ui.add_space(tk::GUTTER);
+    }
     let (n, of) = b.progress();
     let on = step.as_ref().map_or(0, |s| s.on.len());
-    let kind = if step.as_ref().is_some_and(|s| s.kind == StepKind::Confirm) { " · checking the last suspect" } else { "" };
-    ui.label(RichText::new(format!("step {n} of ~{of} · {} suspects · {on} mods on{kind}", b.suspects.len())).color(t.muted));
-    ui.add_space(8.0);
-    if let Some(why) = &a.why {
-        w::para(ui, RichText::new(why).color(t.yellow));
-        ui.add_space(6.0);
-    }
+    let confirm = step.as_ref().is_some_and(|s| s.kind == StepKind::Confirm);
+    let aside = if confirm { format!("checking the last suspect · {on} mods on") } else { format!("{} suspects · {on} mods on", b.suspects.len()) };
     let mut pick = kb == Some(Nav::Activate);
-    for (n, (_, label, hint)) in ANSWERS.iter().enumerate() {
-        let on = n == a.choice;
-        let r = w::lead_row(ui, &t, on, Lead::None, label, hint, None);
-        if on {
-            w::focus_mark(ui, &t, r.rect);
+    kit::setting_group(ui, &t, 1, &format!("Step {n} of ~{of}"), &aside, |ui| {
+        for (i, (_, label, hint)) in ANSWERS.iter().enumerate() {
+            // A click only selects: nothing is sent until "answer", so a slip can be corrected.
+            if kit::choice_row(ui, &t, label, hint, i == a.choice, false).clicked() {
+                a.choice = i;
+            }
         }
-        // A click only selects: nothing is sent until "answer", so a slip can be corrected.
-        if r.clicked() {
-            a.choice = n;
-        }
-    }
-    ui.add_space(12.0);
+    });
+    ui.add_space(tk::GUTTER);
     let mut close = false;
     ui.horizontal(|ui| {
-        pick |= w::primary_button(ui, &t, "answer").clicked();
-        close = w::button(ui, "close").on_hover_text("answer later from the banner on the instance").clicked();
+        ui.spacing_mut().item_spacing.x = tk::GAP;
+        pick |= kit::Button::new("answer").filled().show(ui, &t).clicked();
+        close = kit::Button::new("later").show(ui, &t).on_hover_text("answer later from the banner on the instance").clicked();
     });
     if pick {
         answer(app, &ctx, &inst, ANSWERS[a.choice].0);
@@ -1168,132 +1230,94 @@ fn show_ask(app: &mut App) {
     app.modal = Some(Modal::Bisect(Box::new(BisectDialog::Ask(AskDialog { inst_id, why, choice }))));
 }
 
-/// The banner on an instance while a search for its breaking mod runs, or shows its result.
+/// The banner on an instance while a search for its breaking mod runs, or shows its result:
+/// a strip under the spec strip, sharing its line.
 pub fn banner(app: &mut App, ui: &mut Ui, inst: &Instance) {
     show_ask(app);
     let Some(b) = app.mod_sets.bisect(inst) else { return };
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
     let blocked = busy(app, inst).search_action();
     let running = app.is_running(&inst.id);
     let busy = blocked.is_some();
-    ui.add_space(12.0);
-    let color = match &b.done {
-        Some(d) if d.culprits.is_empty() => t.yellow,
-        Some(_) => t.green,
-        None => t.accent,
-    };
+    let free = !running && !busy;
     let mut act: Option<Act> = None;
-    let r = egui::Frame::new()
-        .fill(Theme::alpha(color, 0.06))
-        .stroke(Stroke::new(1.0, Theme::alpha(color, 0.35)))
-        .corner_radius(CornerRadius::ZERO)
-        .inner_margin(egui::Margin { left: 16, right: 12, top: 10, bottom: 10 })
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing.y = 6.0;
-            // A switch that didn't finish, or an ending that couldn't find every mod, comes first.
-            if !b.unresolved.is_empty() {
-                let what = list_titles(&HashMap::new(), &b.unresolved);
-                w::para(ui, RichText::new(format!("Couldn't find {what} in the mods folder, so the search is kept to remember how the mods were. Put the files back and try again, or forget the search and sort them out by hand.")).color(t.red));
-                ui.horizontal_wrapped(|ui| {
-                    ui.add_enabled_ui(!running && !busy, |ui| {
-                        if w::button(ui, "try again").clicked() {
-                            act = Some(Act::Recover);
-                        }
-                        if w::button(ui, "forget the search").on_hover_text("leave the mods as they are now").clicked() {
-                            act = Some(Act::Forget);
-                        }
-                    });
-                });
-                return;
-            }
-            if !b.applied {
-                w::para(ui, RichText::new("The mods didn't all switch. Nothing is lost: the search knows how they should be.").color(t.red));
-                ui.horizontal_wrapped(|ui| {
-                    if ui.add_enabled_ui(!running && !busy, |ui| w::button(ui, "try again")).inner.clicked() {
-                        act = Some(Act::Recover);
-                    }
-                    if b.ending.is_none() && ui.add_enabled_ui(!running && !busy, |ui| w::button(ui, "stop and put my mods back")).inner.clicked() {
-                        act = Some(Act::Restore);
-                    }
-                });
-                return;
-            }
-            match &b.done {
-                None => {
-                    let (n, of) = b.progress();
-                    let on = b.step.as_ref().map_or(0, |s| s.on.len());
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(SEARCH).color(color));
-                        ui.label(RichText::new("finding breaking mod").font(crate::design::fonts::bold(t.body_size())).color(t.fg_light));
-                        let confirm = b.step.as_ref().is_some_and(|s| s.kind == StepKind::Confirm);
-                        let what = if confirm { "checking the last suspect".to_string() } else { format!("{} suspects left", b.suspects.len()) };
-                        ui.add(egui::Label::new(RichText::new(format!("step {n} of ~{of}  ·  {what}  ·  {on} of {} mods on", b.original.values().filter(|o| **o).count())).color(t.muted)).truncate());
-                    });
-                    let say = if running { "Playing. Close the game once you've seen whether the problem occurs." } else { "Play, then say whether the problem occurred. Test from the title screen or a new world: worlds opened with mods missing can lose what those mods added." };
-                    w::para(ui, RichText::new(say).color(t.fg));
-                    // Answering goes through the dialog, where a choice can be changed before it's sent.
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.add_enabled_ui(!running && !busy, |ui| w::button(ui, "answer…")).inner.clicked() {
-                            act = Some(Act::Ask);
-                        }
-                        if ui.add_enabled_ui(!busy, |ui| w::button(ui, "stop and put my mods back")).inner.clicked() {
-                            act = Some(Act::Restore);
-                        }
-                        ui.add_space(8.0);
-                        w::key_hint(ui, &t, &app.keymap.label(Action::FindBreaking), "answer");
-                    });
-                }
-                Some(done) => {
-                    ui.horizontal(|ui| {
-                        let (glyph, title) = match done.culprits.as_slice() {
-                            [] => (NOT_FOUND, "couldn't narrow the problem to one mod".to_string()),
-                            [c] => (FOUND, format!("breaking mod found: {}", c.label())),
-                            many => (FOUND, format!("breaking mod is one of: {}", many.iter().map(|c| c.label()).collect::<Vec<_>>().join(", "))),
-                        };
-                        ui.label(RichText::new(glyph).color(color));
-                        ui.add(egui::Label::new(RichText::new(title).font(crate::design::fonts::bold(t.body_size())).color(t.fg_light)).truncate());
-                    });
-                    let mut note = done.note.clone();
-                    if let [c] = done.culprits.as_slice() {
-                        note = format!("{note} ({})", c.file);
-                    }
-                    w::para(ui, RichText::new(note).color(t.fg));
-                    ui.horizontal(|ui| {
-                        ui.add_enabled_ui(!running && !busy, |ui| {
-                            if done.culprits.is_empty() {
-                                if w::button(ui, "put my mods back").clicked() {
-                                    act = Some(Act::Restore);
-                                }
-                            } else {
-                                let what = if done.culprits.len() == 1 { "mod" } else { "mods" };
-                                let culprits = done.culprits.iter().map(|c| c.file.clone()).collect();
-                                let label = match b.dependents(&culprits).len() {
-                                    0 => format!("disable {what}"),
-                                    1 => format!("disable {what} + 1 dependent"),
-                                    n => format!("disable {what} + {n} dependents"),
-                                };
-                                if w::button(ui, &label).on_hover_text("put the mods back as they were, but with the breaking mod and its dependents off").clicked() {
-                                    act = Some(Act::Disable);
-                                }
-                                if w::button(ui, "put my mods back").on_hover_text("every mod back as before the search, the breaking mod included").clicked() {
-                                    act = Some(Act::Restore);
-                                }
-                            }
-                        });
-                        for c in done.culprits.iter().filter(|c| c.project.is_some()).take(1) {
-                            if w::button(ui, "modrinth page").clicked() {
-                                super::open_url(&format!("https://modrinth.com/project/{}", c.project.as_deref().unwrap_or_default()));
-                            }
-                        }
-                    });
+    // A switch that didn't finish, or an ending that couldn't find every mod, comes first.
+    if !b.unresolved.is_empty() {
+        let what = list_titles(&HashMap::new(), &b.unresolved);
+        let sentence = format!("Couldn't find {what} in the mods folder, so the search is kept to remember how the mods were. Put the files back and try again, or forget the search and sort them out by hand.");
+        let buttons = [kit::Button::new("try again").enabled(free), kit::Button::new("forget the search").enabled(free)];
+        match kit::banner(ui, &t, "find breaking mod · mods missing", Some(t.error()), &sentence, &buttons) {
+            Some(0) => act = Some(Act::Recover),
+            Some(_) => act = Some(Act::Forget),
+            None => {}
+        }
+    } else if !b.applied {
+        let mut buttons = vec![kit::Button::new("try again").enabled(free)];
+        if b.ending.is_none() {
+            buttons.push(kit::Button::new("stop and put my mods back").enabled(free));
+        }
+        match kit::banner(ui, &t, "find breaking mod · switch cut short", Some(t.error()), "The mods didn't all switch. Nothing is lost: the search knows how they should be.", &buttons) {
+            Some(0) => act = Some(Act::Recover),
+            Some(_) => act = Some(Act::Restore),
+            None => {}
+        }
+    } else {
+        match &b.done {
+            None => {
+                let (n, of) = b.progress();
+                let on = b.step.as_ref().map_or(0, |s| s.on.len());
+                let confirm = b.step.as_ref().is_some_and(|s| s.kind == StepKind::Confirm);
+                let what = if confirm { "checking the last suspect".to_string() } else { format!("{} suspects left", b.suspects.len()) };
+                let total = b.original.values().filter(|o| **o).count();
+                let caption = format!("finding breaking mod · step {n} of ~{of} · {what} · {on} of {total} mods on");
+                let say = if running { "Playing. Close the game once you've seen whether the problem occurs." } else { "Play, then say whether the problem occurred. Test from the title screen or a new world: worlds opened with mods missing can lose what those mods added." };
+                // Answering goes through the dialog, where a choice can be changed before it's sent.
+                let buttons = [kit::Button::new("answer").enabled(free), kit::Button::new("stop and put my mods back").enabled(!busy)];
+                match kit::banner(ui, &t, &caption, None, say, &buttons) {
+                    Some(0) => act = Some(Act::Ask),
+                    Some(_) => act = Some(Act::Restore),
+                    None => {}
                 }
             }
-        });
-    // The accent edge, like a focus mark.
-    let rect = r.response.rect;
-    ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, vec2(3.0, rect.height())), CornerRadius::ZERO, color);
+            Some(done) => {
+                let (caption, color, title) = match done.culprits.as_slice() {
+                    [] => ("couldn't narrow it down", t.warning(), "Couldn't narrow the problem to one mod.".to_string()),
+                    [c] => ("breaking mod found", t.ok(), format!("{} ({}).", c.label(), c.file)),
+                    many => ("breaking mod found", t.ok(), format!("One of: {}.", many.iter().map(|c| c.label()).collect::<Vec<_>>().join(", "))),
+                };
+                let sentence = format!("{title} {}", done.note);
+                let disable = (!done.culprits.is_empty()).then(|| {
+                    let what = if done.culprits.len() == 1 { "mod" } else { "mods" };
+                    let culprits = done.culprits.iter().map(|c| c.file.clone()).collect();
+                    match b.dependents(&culprits).len() {
+                        0 => format!("turn {what} off"),
+                        1 => format!("turn {what} + 1 dependent off"),
+                        n => format!("turn {what} + {n} dependents off"),
+                    }
+                });
+                let mut buttons = Vec::new();
+                let mut acts = Vec::new();
+                if let Some(label) = &disable {
+                    buttons.push(kit::Button::new(label).enabled(free));
+                    acts.push(Act::Disable);
+                }
+                buttons.push(kit::Button::new("put my mods back").enabled(free));
+                acts.push(Act::Restore);
+                let page = done.culprits.iter().find_map(|c| c.project.clone());
+                if page.is_some() {
+                    buttons.push(kit::Button::new("modrinth page"));
+                    acts.push(Act::Page);
+                }
+                if let Some(i) = kit::banner(ui, &t, caption, Some(color), &sentence, &buttons) {
+                    match acts.swap_remove(i) {
+                        Act::Page => super::open_url(&format!("https://modrinth.com/project/{}", page.unwrap_or_default())),
+                        a => act = Some(a),
+                    }
+                }
+            }
+        }
+    }
 
     // Checked again as it runs: a job may have started since the buttons were drawn.
     if let Some(why) = blocked.filter(|_| act.as_ref().is_some_and(|a| !matches!(a, Act::Ask | Act::Forget))) {
@@ -1329,7 +1353,7 @@ pub fn banner(app: &mut App, ui: &mut Ui, inst: &Instance) {
                 n => format!("Put the mods back with the breaking mod off, plus {n} that depend on the breaking mod: {}", also.join(", ")),
             })
         }),
-        None => {}
+        Some(Act::Page) | None => {}
     }
 }
 
@@ -1339,6 +1363,8 @@ enum Act {
     Disable,
     Recover,
     Forget,
+    /// Open the culprit's Modrinth page (no job).
+    Page,
 }
 
 /// Forget instance `id`'s search (confirmed already), leaving its mods as they are.

@@ -96,37 +96,6 @@ fn lead_row_sense(ui: &mut Ui, t: &Theme, selected: bool, lead: Lead, left: &str
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// A checklist row: a tick (or any glyph) in `mark` colour, the label (dimmed when unticked) and a right label in
-/// `right_color`.
-#[allow(clippy::too_many_arguments)]
-pub fn check_row(ui: &mut Ui, t: &Theme, selected: bool, ticked: bool, glyph: &str, mark: Color32, left: &str, right: &str, right_color: Color32) -> Response {
-    let h = row_height(t);
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
-    if ui.is_rect_visible(rect) {
-        row_frame(ui, t, rect, &resp, selected, None);
-        let size = t.body_size();
-        let p = ui.painter();
-        let cy = rect.center().y;
-        p.text(egui::pos2(rect.left() + 12.0, cy), Align2::LEFT_CENTER, glyph, FontId::monospace(size + 2.0), mark);
-        let x = rect.left() + 12.0 + size * 2.2;
-        let right_w = if right.is_empty() {
-            0.0
-        } else {
-            // Never more than half the row, so the label stays readable.
-            let mut job = egui::text::LayoutJob::single_section(right.to_string(), egui::TextFormat { font_id: FontId::monospace(size - 1.0), color: right_color, ..Default::default() });
-            job.wrap = egui::text::TextWrapping { max_width: rect.width() * 0.5, max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
-            let g = p.layout_job(job);
-            let w = g.size().x;
-            p.galley(egui::pos2(rect.right() - 12.0 - w, cy - g.size().y / 2.0), g, right_color);
-            w + 16.0
-        };
-        let color = if selected { t.menu_selected_text } else if ticked { t.fg } else { t.fg_a(0.55) };
-        let clip = Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(rect.right() - 12.0 - right_w, rect.bottom()));
-        p.with_clip_rect(clip).text(egui::pos2(x, cy), Align2::LEFT_CENTER, left, FontId::monospace(size), color);
-    }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
 /// Two-line row: a title over a muted subtitle, with an optional right label.
 pub fn rich_row(ui: &mut Ui, t: &Theme, selected: bool, lead: Lead, title: &str, subtitle: &str, right: &str) -> Response {
     rich_row_dim(ui, t, selected, lead, title, subtitle, right, false)
@@ -289,17 +258,6 @@ pub fn field_label(ui: &mut Ui, t: &Theme, key: &str) {
         ui.set_min_width(w);
         ui.label(RichText::new(key).color(t.muted));
     });
-}
-
-/// `key label` hint for the bottom bar.
-pub fn key_hint(ui: &mut Ui, t: &Theme, key: &str, label: &str) {
-    let size = t.body_size() - 1.0;
-    let g = ui.painter().layout_no_wrap(key.to_string(), FontId::monospace(size), t.fg_light);
-    let (rect, _) = ui.allocate_exact_size(g.size() + vec2(10.0, 4.0), Sense::hover());
-    ui.painter().rect(rect, CornerRadius::ZERO, t.fg_a(t.normal_fill_alpha * 2.0), Stroke::new(1.0, t.fg_a(0.18)), StrokeKind::Inside);
-    ui.painter().galley(rect.min + vec2(5.0, 2.0), g, t.fg_light);
-    ui.label(RichText::new(label).color(t.muted).size(size));
-    ui.add_space(8.0);
 }
 
 /// Page and sheet titles, in sentence case: the kit's heading face (Switzer ExtraBold 28).

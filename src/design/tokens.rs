@@ -250,6 +250,18 @@ pub const OVERVIEW_COLUMN_MAX: f32 = 520.0;
 pub const OVERVIEW_TWO_COLUMNS: f32 = 720.0;
 /// The components table's version column.
 pub const COMPONENT_VERSION_WIDTH: f32 = 140.0;
+/// A sheet's reading column (headings, paragraphs, a table to choose from) at most.
+pub const SHEET_WIDTH: f32 = 760.0;
+/// A sheet with two panes side by side (mod sets: the sets, then a set's mods) at most.
+pub const SHEET_WIDTH_WIDE: f32 = 1080.0;
+/// The mod sets sheet's left pane (the sets).
+pub const SETS_PANE_WIDTH: f32 = 320.0;
+/// Below this width the content tab shows installed and Modrinth one at a time.
+pub const CONTENT_TWO_PANES: f32 = 760.0;
+/// The version columns of the found-updates table.
+pub const UPDATE_VERSION_WIDTH: f32 = 120.0;
+/// The "taken" column of a backups table.
+pub const BACKUP_WHEN_WIDTH: f32 = 200.0;
 /// Leftward shift of the hot title.
 pub const HOVER_SHIFT: f32 = 32.0;
 pub const HOVER_SHIFT_COMPACT: f32 = 20.0;

@@ -47,15 +47,8 @@ pub fn checkbox(ui: &mut Ui, t: &Tokens, on: bool, enabled: bool, hot: bool, lab
     let hot = enabled && (resp.hovered() || resp.has_focus() || hot);
     let ctx = ui.ctx();
     let p = ui.painter();
-    let fade = |c: egui::Color32| if enabled { c } else { tk::alpha_of(c, 0.5) };
     let b = Rect::from_min_size(egui::pos2(rect.left(), rect.center().y - tk::CHECKBOX_SIZE / 2.0), vec2(tk::CHECKBOX_SIZE, tk::CHECKBOX_SIZE));
-    let border = motion::color(ctx, resp.id.with("box"), hot || on, t.line_strong, t.accent);
-    let fill = motion::toggle(ctx, resp.id.with("fill"), on, Motion::Fast);
-    if fill > 0.0 {
-        p.rect_filled(b, 0.0, fade(tk::alpha_of(t.accent, fill)));
-        text::paint_glyph(p, b.center(), glyphs::CHECK, fonts::icons_bold(tk::CHECKBOX_SIZE - 4.0), tk::alpha_of(t.text_on_fill(), fill));
-    }
-    rule::frame(p, b, fade(border));
+    paint_box(ui, t, resp.id, b, on, hot, enabled);
     if let Some(g) = g {
         let c = motion::color(ctx, resp.id.with("label"), hot, if enabled { t.text_strong } else { t.text_muted }, t.accent);
         p.galley(egui::pos2(b.right() + tk::UNIT, rect.center().y - g.size().y / 2.0), g, c);
@@ -66,4 +59,18 @@ pub fn checkbox(ui: &mut Ui, t: &Tokens, on: bool, enabled: bool, hot: bool, lab
     let label = label.to_string();
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, on, &label));
     resp
+}
+
+/// The checkbox's square in `b`: framed, filled with the accent and checked when `on`.
+pub(super) fn paint_box(ui: &Ui, t: &Tokens, id: egui::Id, b: Rect, on: bool, hot: bool, enabled: bool) {
+    let ctx = ui.ctx();
+    let p = ui.painter();
+    let fade = |c: egui::Color32| if enabled { c } else { tk::alpha_of(c, 0.5) };
+    let border = motion::color(ctx, id.with("box"), hot || on, t.line_strong, t.accent);
+    let fill = motion::toggle(ctx, id.with("fill"), on, Motion::Fast);
+    if fill > 0.0 {
+        p.rect_filled(b, 0.0, fade(tk::alpha_of(t.accent, fill)));
+        text::paint_glyph(p, b.center(), glyphs::CHECK, fonts::icons_bold(tk::CHECKBOX_SIZE - 4.0), tk::alpha_of(t.text_on_fill(), fill));
+    }
+    rule::frame(p, b, fade(border));
 }

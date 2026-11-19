@@ -30,6 +30,12 @@ pub struct Hit {
     pub downloads: u64,
     #[serde(default)]
     pub icon_url: Option<String>,
+    #[serde(default)]
+    pub follows: u64,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub date_modified: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

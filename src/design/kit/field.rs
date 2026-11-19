@@ -65,8 +65,10 @@ impl<'a> Field<'a> {
         let (rect, _) = ui.allocate_exact_size(vec2(width, tk::FIELD_HEIGHT), egui::Sense::hover());
         let label_w = if self.label.is_empty() { 0.0 } else { text::caption_galley(ui, self.label, t.text_muted).size().x + tk::GAP };
         let inner = egui::Rect::from_min_max(egui::pos2(rect.left() + tk::GAP + label_w, rect.top()), egui::pos2(rect.right() - tk::GAP, rect.bottom()));
+        // A child that doesn't move the cursor: the frame's room is allocated already.
         let resp = ui
-            .scope_builder(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+            .new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center)))
+            .scope(|ui| {
                 edit_style(ui, t);
                 let hint = RichText::new(self.hint).color(t.text_muted).font(fonts::text(tk::SIZE_BODY));
                 ui.add(

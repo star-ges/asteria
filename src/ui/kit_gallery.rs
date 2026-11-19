@@ -649,7 +649,7 @@ impl Gallery {
         ]);
         // Section tabs with the marker, then sub-tabs.
         kit::bar(ui, t, |ui| {
-            for (i, s) in ["overview", "content", "configs", "worlds", "screenshots", "logs"].iter().enumerate() {
+            for (i, s) in ["overview", "mods & packs", "configs", "worlds", "screenshots", "logs"].iter().enumerate() {
                 kit::BarCell::new(s).number(i + 1).open(i == 1).show(ui, t);
             }
         });

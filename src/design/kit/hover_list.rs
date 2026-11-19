@@ -110,6 +110,23 @@ pub struct HoverRow<'a> {
     pub depth: usize,
     pub aside: &'a str,
     pub sense: Sense,
+    /// Room kept at the right end for the caller's own controls (a switch): always, plus more
+    /// while hot (links that appear on hover). See [`HoverList::row_trail`].
+    pub trail: (f32, f32),
+    /// A glyph before the badge (a check before `INSTALLED`).
+    pub badge_icon: Option<&'a str>,
+    /// No lead picture, but its room kept (an empty hairline square), so titles line up.
+    pub lead_blank: bool,
+}
+
+/// Where a row's own controls go, from [`HoverList::row_trail`].
+pub struct Trail {
+    pub response: Response,
+    /// Hovered (also over the controls), focused or keyboard-current.
+    pub hot: bool,
+    /// The room kept at the right end, if any: the always part at its right, the hot part
+    /// (while hot) at its left.
+    pub rect: Option<Rect>,
 }
 
 impl<'a> HoverRow<'a> {
@@ -129,6 +146,9 @@ impl<'a> HoverRow<'a> {
             depth: 0,
             aside: "",
             sense: Sense::click(),
+            trail: (0.0, 0.0),
+            badge_icon: None,
+            lead_blank: false,
         }
     }
 
@@ -150,6 +170,12 @@ impl<'a> HoverRow<'a> {
 
     pub fn lead(mut self, src: impl Into<ImageSource<'a>>) -> Self {
         self.lead = Some(src.into());
+        self
+    }
+
+    /// Keep the lead picture's room with an empty square where a list has pictures for some rows.
+    pub fn lead_blank(mut self) -> Self {
+        self.lead_blank = true;
         self
     }
 
@@ -188,6 +214,18 @@ impl<'a> HoverRow<'a> {
         self
     }
 
+    /// Keep `always` px at the right end for the caller's controls, and `hot` px more while
+    /// the row is hot. The controls are drawn by the caller in [`Trail::rect`], after the row.
+    pub fn trail(mut self, always: f32, hot: f32) -> Self {
+        self.trail = (always, hot);
+        self
+    }
+
+    pub fn badge_icon(mut self, glyph: &'a str) -> Self {
+        self.badge_icon = Some(glyph);
+        self
+    }
+
     /// E.g. `Sense::click_and_drag()` for rows that can be dragged between groups.
     pub fn sense(mut self, sense: Sense) -> Self {
         self.sense = sense;
@@ -211,13 +249,26 @@ impl HoverList {
     }
 
     pub fn row(&mut self, ui: &mut Ui, t: &Tokens, row: HoverRow) -> Response {
+        self.row_trail(ui, t, row).response
+    }
+
+    /// A row with room kept for the caller's own controls (`HoverRow::trail`): draw them in
+    /// the returned rect after this call, so they sit over the row and take their own clicks.
+    /// The row stays hot while the pointer is over them.
+    pub fn row_trail(&mut self, ui: &mut Ui, t: &Tokens, row: HoverRow) -> Trail {
         let v = self.variant;
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), v.height()), row.sense);
+        let has_trail = row.trail.0 + row.trail.1 > 0.0;
+        // Over the row's own controls the row isn't the hovered widget, but it's still the one
+        // being reached for.
+        let over = has_trail && ui.rect_contains_pointer(rect) && !ui.ctx().dragged_id().is_some_and(|d| d != resp.id);
+        let hot = resp.hovered() || resp.has_focus() || row.hot || over;
+        let trail_w = row.trail.0 + if hot { row.trail.1 } else { 0.0 };
+        let trail_rect = (trail_w > 0.0).then(|| Rect::from_min_max(egui::pos2(rect.right() - tk::GUTTER - trail_w, rect.top()), egui::pos2(rect.right() - tk::GUTTER, rect.bottom())));
         if !ui.is_rect_visible(rect.expand(tk::STAR_SIZE_MAX)) {
-            return resp;
+            return Trail { response: resp, hot, rect: trail_rect };
         }
         let ctx = ui.ctx().clone();
-        let hot = resp.hovered() || resp.has_focus() || row.hot;
         let id = row.id;
         let shift = motion::toggle(&ctx, id.with("shift"), hot, Motion::Medium) * v.shift();
         let rest = if row.selected { t.text_strong } else { t.text_muted };
@@ -246,8 +297,8 @@ impl HoverList {
             p.rect_filled(Rect::from_min_size(egui::pos2(rect.left(), cy - h / 2.0), vec2(tk::MARKER, h)), 0.0, hue);
         }
 
-        // The right end: badge (at rest), picture (while hot), quiet aside.
-        let right_edge = rect.right() - tk::GUTTER;
+        // The right end: the caller's controls, badge (at rest), picture (while hot), quiet aside.
+        let right_edge = rect.right() - tk::GUTTER - if trail_w > 0.0 { trail_w + tk::GAP } else { 0.0 };
         let mut end_x = right_edge;
         // Where the right end starts without the picture (only there while hot).
         let mut rest_end = right_edge;
@@ -259,10 +310,11 @@ impl HoverList {
             end_x = end_x.min(right_edge - size.x);
         }
         let mut badge_g = None;
+        let badge_icon_w = if row.badge_icon.is_some() { tk::ICON_SIZE_SMALL + tk::ICON_GAP } else { 0.0 };
         if let Some((b, color)) = row.badge {
             let g = text::caption_galley(ui, b, Color32::PLACEHOLDER);
-            end_x = end_x.min(right_edge - g.size().x);
-            rest_end = rest_end.min(right_edge - g.size().x);
+            end_x = end_x.min(right_edge - g.size().x - badge_icon_w);
+            rest_end = rest_end.min(right_edge - g.size().x - badge_icon_w);
             badge_g = Some((g, color));
         }
         if v == Variant::Quiet && !row.aside.is_empty() {
@@ -282,6 +334,11 @@ impl HoverList {
                 img = img.tint(Color32::from_white_alpha(110));
             }
             img.paint_at(ui, r);
+            x += s + tk::GAP;
+        } else if row.lead_blank {
+            let s = (v.height() * 0.57).round();
+            let r = Rect::from_min_size(egui::pos2(x, cy - s / 2.0), vec2(s, s));
+            rule::frame(ui.painter(), r, t.line);
             x += s + tk::GAP;
         }
         let (desc_gap, desc_w) = v.description();
@@ -336,6 +393,10 @@ impl HoverList {
             let a = if preview.is_some() { 1.0 - reveal } else { 1.0 };
             if a > 0.0 {
                 let c = tk::alpha_of(color, a);
+                if let Some(icon) = row.badge_icon {
+                    let x = right_edge - g.size().x - badge_icon_w + tk::ICON_SIZE_SMALL / 2.0;
+                    text::paint_glyph(ui.painter(), egui::pos2(x, cy), icon, fonts::icons(tk::ICON_SIZE_SMALL), c);
+                }
                 ui.painter().galley(egui::pos2(right_edge - g.size().x, cy - g.size().y / 2.0), g, c);
             }
         }
@@ -348,7 +409,7 @@ impl HoverList {
                 text_left: title_r.left(),
                 text_right: if has_desc && !stacked { title_r.right() + desc_gap + desc_w } else { desc_right },
                 left_limit: rect.left() + if row.number.is_some() { tk::GUTTER * 2.0 } else { 0.0 },
-                right_limit: if preview.is_some() || badge_g_present(&row) { end_x - tk::GAP } else { rect.right() },
+                right_limit: if preview.is_some() || badge_g_present(&row) || trail_w > 0.0 { end_x - tk::GAP } else { rect.right() },
                 seed: id.value(),
                 compact: v == Variant::Compact,
             };
@@ -373,7 +434,7 @@ impl HoverList {
         }
         let (title, selected) = (row.title.to_string(), row.selected);
         resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &title));
-        resp
+        Trail { response: resp, hot, rect: trail_rect }
     }
 
     pub fn end(self, ui: &mut Ui) {

@@ -44,7 +44,7 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 | `design/tokens.rs` | Every colour, size, spacing and duration as a named token (StarShell's values): `LIGHT`/`DARK` palettes plus the clarity hues, `Tokens` (the crossfaded palette in use) |
 | `design/system.rs` | `Look`: follows the XDG portal (`color-scheme`, GNOME's `enable-animations` for reduced motion; D-Bus, watched; winit reports no theme on Wayland) and fontconfig; crossfades light ⇄ dark over 600ms and keeps the old screens' `Theme` in step |
 | `design/fonts.rs`, `design/glyphs.rs`, `design/motion.rs` | Switzer/Melodrama via fontconfig (else `sans-serif`, `FontSet::missing`), bundled Phosphor and JetBrains Mono, the old screens' monospace + Nerd Font; Phosphor names → codepoints; ease-out curves and eased animations that repaint only while moving |
-| `design/kit/*` | The new widget kit (Phase 2): text and icons, rules and section labels, buttons, switch and checkbox, fields, slider and meter, setting groups and rows, quiet table, tiles, bars, sheet/strip/notice and the small blocks (spec strip, bracketed paragraph, empty and loading), `HoverList` with its stars |
+| `design/kit/*` | The new widget kit (Phase 2): text and icons, rules and section labels, buttons, switch and checkbox, fields, slider and meter, setting groups and rows, quiet table, tiles, bars, sheet/strip/notice/banner and the small blocks (spec strip, bracketed paragraph, empty and loading), `HoverList` with its stars (`row_trail` keeps room for a row's own controls: the mods' switches, Modrinth's install), `QuietRow` (checklists, rows with a control at the right) |
 | `design/legacy.rs` | The old screens' `Theme`, made from the tokens' palette; goes with the last old screen |
 | `ui/kit_gallery.rs` | The hidden kit gallery (`ASTERIA_DEBUG_VIEW=kit`): every kit part and the plan's new patterns, light, dark or both |
 | `migrate.rs` | First start: moves Asteria's data and config dirs to Asteria's and links the old names back |
@@ -90,6 +90,7 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
   - Paragraphs that should wrap use `w::para`, which also avoids the justified spacing inside `ui.columns`.
   - Single lines that may be long use `Label::truncate()`.
   - To keep text from overlapping buttons, lay the buttons out first (right-to-left), then the text in the space left.
+- **Controls drawn over an allocated row** (a switch on a hover row, buttons in a banner) go in `ui.new_child(UiBuilder::new().max_rect(r))`, never `scope_builder`: a scope allocates in the parent and moves its cursor back up, so the next row overlaps.
 - **Rows:** use `w::menu_row` / `lead_row` / `drag_row` / `rich_row` / `rich_row_dim`.
   - Mark the selection in the focused pane with `w::focus_mark`.
   - Scroll to the selection only after a keyboard move, never every frame.

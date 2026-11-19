@@ -40,7 +40,7 @@ pub enum Section {
 impl Section {
     pub const ALL: [(Section, &'static str); 6] = [
         (Section::Overview, "overview"),
-        (Section::Content, "content"),
+        (Section::Content, "mods & packs"),
         (Section::Configs, "configs"),
         (Section::Worlds, "worlds"),
         (Section::Screenshots, "screenshots"),
@@ -432,15 +432,16 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
     // spacing between them (the header sets it to 0 before the strip).
     let spacing = ui.spacing().item_spacing.y;
     header(app, ui, inst);
-    egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: 0, bottom: 0 }).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = spacing;
-        super::mod_sets::banner(app, ui, inst);
-    });
+    // The search banner, when there is one, shares the spec strip's line and the tabs' line.
+    super::mod_sets::banner(app, ui, inst);
     sections(app, ui);
     ui.spacing_mut().item_spacing.y = spacing;
-    egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: tk::GAP as i8, bottom: tk::GAP as i8 }).show(ui, |ui| {
+    // The content panes run to the page's edges (their rows reach the line between them);
+    // everything else sits on the gutter.
+    let side = if app.inst_tab.content_kind().is_some() { 0.0 } else { tk::GUTTER };
+    egui::Frame::new().inner_margin(egui::Margin { left: side as i8, right: side as i8, top: tk::GAP as i8, bottom: tk::GAP as i8 }).show(ui, |ui| {
         // Files dropped now go into this tab's folder: its pane is what the drop hint frames.
-        app.drop_rect = Some(ui.available_rect_before_wrap().expand2(vec2(tk::GUTTER, tk::GAP)));
+        app.drop_rect = Some(ui.available_rect_before_wrap().expand2(vec2(side, tk::GAP)));
 
         match app.inst_tab {
             InstTab::Overview => overview(app, ui, inst),

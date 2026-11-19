@@ -105,6 +105,47 @@ pub fn strip(ui: &mut Ui, t: &Tokens, id: egui::Id, caption: &str, sentence: &st
     answer
 }
 
+/// A state that holds a page for a while (a search in progress), across the page under its
+/// head: a caption (in a clarity hue for a status, else muted) over a sentence in `text_strong`,
+/// wrapping beside `buttons` at the right, which keep their order. Draws only its foot line, so
+/// it shares the line above it. Returns the button clicked.
+pub fn banner(ui: &mut Ui, t: &Tokens, caption: &str, caption_color: Option<Color32>, sentence: &str, buttons: &[Button]) -> Option<usize> {
+    let width = ui.available_width();
+    let buttons_w: f32 = buttons.iter().map(|b| b.width(ui, t) + tk::GAP).sum();
+    let text_w = (width - tk::GUTTER * 2.0 - buttons_w - tk::GAP).max(160.0);
+    let mut job = egui::text::LayoutJob::simple(sentence.to_string(), fonts::text(tk::SIZE_BODY), Color32::PLACEHOLDER, text_w);
+    job.wrap.max_rows = 4;
+    let g = ui.painter().layout_job(job);
+    let cap_c = caption_color.unwrap_or(t.text_muted);
+    let cap = text::caption_galley(ui, caption, Color32::PLACEHOLDER);
+    let cap_h = cap.size().y + tk::UNIT / 2.0;
+    let h = (cap_h + g.size().y).max(tk::BUTTON_HEIGHT) + tk::GAP * 2.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
+    let inner = rect.shrink2(vec2(tk::GUTTER, 0.0));
+    let mut clicked = None;
+    // A child that doesn't move the cursor: the row is allocated already.
+    let mut row = ui.new_child(UiBuilder::new().max_rect(inner).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    row.spacing_mut().item_spacing.x = tk::GAP;
+    for (i, b) in buttons.iter().enumerate().rev() {
+        if b.clone().show(&mut row, t).clicked() {
+            clicked = Some(i);
+        }
+    }
+    let p = ui.painter();
+    let top = rect.center().y - (cap_h + g.size().y) / 2.0;
+    if caption_color.is_some() {
+        p.rect_filled(Rect::from_center_size(egui::pos2(inner.left() + tk::MARK_SQUARE / 2.0, top + cap.size().y / 2.0), vec2(tk::MARK_SQUARE, tk::MARK_SQUARE)), 0.0, cap_c);
+        p.galley(egui::pos2(inner.left() + tk::MARK_SQUARE + tk::UNIT, top), cap, cap_c);
+    } else {
+        p.galley(egui::pos2(inner.left(), top), cap, cap_c);
+    }
+    p.galley(egui::pos2(inner.left(), top + cap_h), g, t.text_strong);
+    rule::hline(p, rect.x_range(), rect.bottom() - 0.5, t.line_strong);
+    let label = format!("{caption}: {sentence}");
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
+    clicked
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeKind {
     Info,
