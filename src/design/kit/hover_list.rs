@@ -83,6 +83,8 @@ pub struct HoverList {
     shapes: Vec<Shape>,
     /// Melodrama size for full rows (one step down in narrow columns).
     display_size: f32,
+    /// Where titles start, if not the variant's own indent (a narrow list beside a page).
+    indent: Option<f32>,
 }
 
 pub struct HoverRow<'a> {
@@ -198,7 +200,14 @@ impl HoverList {
         let imagery = ui.painter().add(Shape::Noop);
         // One step down when the title column is narrow.
         let display_size = if ui.available_width() - tk::LIST_INDENT - tk::LIST_DESCRIPTION_WIDTH < 480.0 { tk::SIZE_DISPLAY_SMALL } else { tk::SIZE_DISPLAY };
-        Self { variant, imagery, shapes: Vec::new(), display_size }
+        Self { variant, imagery, shapes: Vec::new(), display_size, indent: None }
+    }
+
+    /// Titles start `x` in from the row's left edge instead of the variant's indent. A list
+    /// beside a page uses the gutter plus the shift, so a hot title lands on the gutter line.
+    pub fn indent(mut self, x: f32) -> Self {
+        self.indent = Some(x);
+        self
     }
 
     pub fn row(&mut self, ui: &mut Ui, t: &Tokens, row: HoverRow) -> Response {
@@ -240,6 +249,8 @@ impl HoverList {
         // The right end: badge (at rest), picture (while hot), quiet aside.
         let right_edge = rect.right() - tk::GUTTER;
         let mut end_x = right_edge;
+        // Where the right end starts without the picture (only there while hot).
+        let mut rest_end = right_edge;
         let preview = row.image.as_ref().map(|(_, aspect)| {
             let h = v.preview_height();
             vec2((h * aspect).round(), h)
@@ -251,16 +262,18 @@ impl HoverList {
         if let Some((b, color)) = row.badge {
             let g = text::caption_galley(ui, b, Color32::PLACEHOLDER);
             end_x = end_x.min(right_edge - g.size().x);
+            rest_end = rest_end.min(right_edge - g.size().x);
             badge_g = Some((g, color));
         }
         if v == Variant::Quiet && !row.aside.is_empty() {
             let g = text::caption_galley(ui, row.aside, t.text_muted);
             p.galley(egui::pos2(right_edge - g.size().x, cy - g.size().y / 2.0), g.clone(), t.text_muted);
             end_x = end_x.min(right_edge - g.size().x);
+            rest_end = rest_end.min(right_edge - g.size().x);
         }
 
         // Title (and lead picture), shifted.
-        let mut x = rect.left() + v.indent() + row.depth as f32 * tk::GAP * 1.5 - shift;
+        let mut x = rect.left() + self.indent.unwrap_or(v.indent()) + row.depth as f32 * tk::GAP * 1.5 - shift;
         if let Some(src) = row.lead.clone() {
             let s = (v.height() * 0.57).round();
             let r = Rect::from_min_size(egui::pos2(x, cy - s / 2.0), vec2(s, s));
@@ -274,23 +287,44 @@ impl HoverList {
         let (desc_gap, desc_w) = v.description();
         let has_desc = !row.description.is_empty() && v != Variant::Quiet;
         // The title keeps room for at least a compact description beside it; the description
-        // takes what's left, up to its full width.
-        let reserve = if has_desc { desc_gap + desc_w.min(tk::LIST_DESCRIPTION_WIDTH_COMPACT) } else { 0.0 };
-        let room = (end_x - tk::GUTTER - x - reserve).max(40.0);
+        // takes what's left, up to its full width. In a column too narrow for both side by
+        // side (a list beside a page), the description slides in under the title instead,
+        // one line, and the title rises to make room.
+        let side_reserve = desc_gap + desc_w.min(tk::LIST_DESCRIPTION_WIDTH_COMPACT);
+        let stacked = has_desc && v == Variant::Compact && end_x - tk::GUTTER - x - side_reserve < tk::LIST_TITLE_MIN;
+        let reserve = if has_desc && !stacked { side_reserve } else { 0.0 };
+        // A stacked title has the row to itself at rest, and gives way to the picture while hot
+        // (it has moved left by the shift then, so it loses little).
+        let title_end = if stacked && !hot { rest_end } else { end_x };
+        let room = (title_end - tk::GUTTER - x - reserve).max(40.0);
         let mut job = egui::text::LayoutJob::simple_singleline(row.title.to_string(), v.title_font(self.display_size), title_c);
         job.wrap.max_width = room;
         job.wrap.max_rows = 1;
         let title_g = p.layout_job(job);
-        let title_r = Rect::from_min_size(egui::pos2(x, cy - title_g.size().y / 2.0), title_g.size());
+        let desc_job = |c: Color32, w: f32, lines: usize| text::caption_wrapped(row.description, c, w, lines);
+        // How far a stacked title rises: half the description's line and the gap above it.
+        // A stacked description shows beside the picture, so it stops where the picture starts.
+        let stack_w = (end_x - tk::GUTTER - x).max(40.0);
+        let stack = stacked.then(|| p.layout_job(desc_job(t.text_strong, stack_w, 1)).size()).unwrap_or_default();
+        let stack_h = if stacked { stack.y + tk::LIST_STACK_GAP } else { 0.0 };
+        let lift = stack_h / 2.0 * reveal;
+        let title_r = Rect::from_min_size(egui::pos2(x, cy - title_g.size().y / 2.0 - lift), title_g.size());
         p.galley(title_r.min, title_g, title_c);
 
-        let desc_w = desc_w.min(end_x - tk::GUTTER - title_r.right() - desc_gap).max(tk::LIST_DESCRIPTION_WIDTH_COMPACT.min(desc_w));
+        let desc_w = if stacked { stack_w } else { desc_w.min(end_x - tk::GUTTER - title_r.right() - desc_gap).max(tk::LIST_DESCRIPTION_WIDTH_COMPACT.min(desc_w)) };
+        // Stars keep clear of the text as it will be, so they don't move while it slides in.
+        let desc_right = title_r.right().max(x + stack.x);
         if has_desc && reveal > 0.0 {
             let c = tk::alpha_of(t.text_strong, reveal);
-            let job = text::caption_wrapped(row.description, c, desc_w, if v == Variant::Full { tk::LIST_DESCRIPTION_LINES } else { 2 });
-            let g = p.layout_job(job);
-            let dx = title_r.right() + desc_gap + (1.0 - reveal) * tk::DESCRIPTION_OFFSET;
-            p.galley(egui::pos2(dx, cy - g.size().y / 2.0), g, c);
+            let lines = if stacked { 1 } else if v == Variant::Full { tk::LIST_DESCRIPTION_LINES } else { 2 };
+            let g = p.layout_job(desc_job(c, desc_w, lines));
+            let slide = (1.0 - reveal) * tk::DESCRIPTION_OFFSET;
+            let pos = if stacked {
+                egui::pos2(x + slide, title_r.bottom() + tk::LIST_STACK_GAP)
+            } else {
+                egui::pos2(title_r.right() + desc_gap + slide, cy - g.size().y / 2.0)
+            };
+            p.galley(pos, g, c);
         }
         if let (Some(size), Some((src, _))) = (preview, row.image.clone())
             && reveal > 0.0
@@ -312,7 +346,7 @@ impl HoverList {
             let scatter = Scatter {
                 row: rect,
                 text_left: title_r.left(),
-                text_right: if has_desc { title_r.right() + desc_gap + desc_w } else { title_r.right() },
+                text_right: if has_desc && !stacked { title_r.right() + desc_gap + desc_w } else { desc_right },
                 left_limit: rect.left() + if row.number.is_some() { tk::GUTTER * 2.0 } else { 0.0 },
                 right_limit: if preview.is_some() || badge_g_present(&row) { end_x - tk::GAP } else { rect.right() },
                 seed: id.value(),

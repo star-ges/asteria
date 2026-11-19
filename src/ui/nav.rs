@@ -88,7 +88,7 @@ impl Nav {
 
 /// Which zones the current instance tab has.
 pub fn has_side(app: &App) -> bool {
-    app.inst_tab.content_kind().is_some() || matches!(app.inst_tab, InstTab::LogHistory | InstTab::Worlds | InstTab::Config) || (app.inst_tab == InstTab::Version && app.version.picker_open())
+    app.inst_tab.content_kind().is_some() || matches!(app.inst_tab, InstTab::LogHistory | InstTab::Worlds | InstTab::Config) || app.inst_tab == InstTab::Overview
 }
 
 /// Actions that drive panes and dialogs.
@@ -188,9 +188,10 @@ pub fn hints(app: &App) -> Vec<(String, &'static str)> {
             let side = app.focus == Zone::Side;
             let lt = l(LoaderType);
             h.extend(match (app.inst_tab, side) {
-                (InstTab::Version, false) if app.version.picker_open() => vec![(p(Down, Up), "versions"), (l(FocusRight), "loader"), (lt, "loader type"), (l(Activate), "apply"), (l(Back), "cancel")],
-                (InstTab::Version, true) => vec![(p(Down, Up), "loader versions"), (lt, "loader type"), (l(Activate), "apply"), (l(Back), "cancel")],
-                (InstTab::Version, _) => vec![(l(Activate), "change version")],
+                (InstTab::Overview, false) if app.version.picker_open() => vec![(p(Down, Up), "versions"), (l(FocusRight), "loader"), (lt, "loader type"), (l(Activate), "apply"), (l(Back), "cancel")],
+                (InstTab::Overview, true) if app.version.picker_open() => vec![(p(Down, Up), "loader versions"), (lt, "loader type"), (l(Activate), "apply"), (l(Back), "cancel")],
+                (InstTab::Overview, false) => vec![(l(Activate), "change version"), (l(FocusRight), "notes")],
+                (InstTab::Overview, true) => vec![(l(Activate), "write"), ("esc".into(), "stop writing")],
                 (InstTab::Log, _) => {
                     let mut v = vec![(p(Down, Up), "scroll"), (l(Bottom), "follow"), (l(Search), "filter"), (l(Copy), "copy")];
                     if app.selected.as_ref().is_some_and(|id| app.logs.notices.contains_key(id)) {
@@ -198,7 +199,6 @@ pub fn hints(app: &App) -> Vec<(String, &'static str)> {
                     }
                     v
                 }
-                (InstTab::Notes, _) => vec![(l(Activate), "write"), ("esc".into(), "stop writing")],
                 (InstTab::Worlds, false) => vec![(p(Down, Up), "worlds"), (l(Activate), "play world"), (l(Rename), "rename"), (l(Duplicate), "duplicate"), (l(Add), "back up"), (l(Delete), "delete"), (l(FocusRight), "backups")],
                 (InstTab::Worlds, true) => vec![(p(Down, Up), "backups"), (l(Activate), "restore"), (l(Add), "back up now"), (l(Delete), "delete"), (l(Folder), "folder")],
                 (InstTab::Servers, _) => vec![(p(Down, Up), "servers"), (l(Activate), "join"), (l(Add), "add"), (l(Edit), "edit"), (p(MoveDown, MoveUp), "reorder"), (l(Delete), "remove")],

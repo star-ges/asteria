@@ -32,11 +32,32 @@ pub struct BarCell<'a> {
     /// On the bar's right end: the cell's line is on its left.
     right: bool,
     sense: Sense,
+    padding: f32,
 }
 
 impl<'a> BarCell<'a> {
     pub fn new(label: &'a str) -> Self {
-        Self { label, number: None, open: false, hot: false, status: None, right: false, sense: Sense::click() }
+        Self { label, number: None, open: false, hot: false, status: None, right: false, sense: Sense::click(), padding: tk::BAR_CELL_PADDING }
+    }
+
+    /// Less room either side of the label, where a row of cells must fit a narrow pane.
+    pub fn padding(mut self, p: f32) -> Self {
+        self.padding = p;
+        self
+    }
+
+    /// How wide the cell will be.
+    pub fn width(&self, ui: &Ui, t: &Tokens) -> f32 {
+        let g = text::caption_galley(ui, &self.text(), t.text_strong);
+        let status_w = self.status.map_or(0.0, |(s, c)| tk::GAP + tk::MARK_SQUARE + tk::UNIT + text::caption_galley(ui, s, c).size().x);
+        (g.size().x + status_w + self.padding * 2.0).round()
+    }
+
+    fn text(&self) -> String {
+        match self.number {
+            Some(n) => format!("{}  {}", text::number(n), self.label),
+            None => self.label.to_string(),
+        }
     }
 
     pub fn number(mut self, n: usize) -> Self {
@@ -71,21 +92,16 @@ impl<'a> BarCell<'a> {
     }
 
     pub fn show(self, ui: &mut Ui, t: &Tokens) -> Response {
-        let label = match self.number {
-            Some(n) => format!("{}  {}", text::number(n), self.label),
-            None => self.label.to_string(),
-        };
-        let g = text::caption_galley(ui, &label, t.text_strong);
+        let label = self.text();
         let status_g = self.status.map(|(s, c)| (text::caption_galley(ui, s, c), c));
-        let status_w = status_g.as_ref().map_or(0.0, |(g, _)| tk::GAP + tk::MARK_SQUARE + tk::UNIT + g.size().x);
-        let w = (g.size().x + status_w + tk::BAR_CELL_PADDING * 2.0).round();
+        let w = self.width(ui, t);
         let (rect, resp) = ui.allocate_exact_size(vec2(w, tk::BAR_HEIGHT), self.sense);
         let active = self.sense.senses_click();
         let hot = active && (resp.hovered() || resp.has_focus() || self.hot);
         let ctx = ui.ctx();
         let p = ui.painter();
         let ink = motion::color(ctx, resp.id.with("ink"), hot, if self.open { t.text_strong } else { t.text_muted }, t.accent);
-        let mut x = rect.left() + tk::BAR_CELL_PADDING;
+        let mut x = rect.left() + self.padding;
         let r = text::paint_caption(p, egui::pos2(x, rect.center().y), &label, ink);
         x = r.right();
         if let Some((g, c)) = status_g {

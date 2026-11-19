@@ -448,6 +448,26 @@ impl Gallery {
             list.row(ui, t, row);
         }
         list.end(ui);
+        self.label(ui, t, 3, "Instance list", "beside the page: the description goes under the title");
+        let insts = [(None, "26.3", "vanilla · 26.3", "stone", false), (Some((1, "Singleplayer", t.slate)), "Vanilla+", "fabric · 1.21.11 · 93h 9m", "grass", true), (None, "Creative builds", "vanilla · 1.21.4 · 3h 20m", "brick", false)];
+        ui.allocate_ui(vec2(tk::LIST_RAIL_MAX, 0.0), |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let mut list = HoverList::begin(ui, Variant::Compact).indent(tk::GUTTER + tk::HOVER_SHIFT_COMPACT);
+            for (i, (group, name, desc, icon, running)) in insts.iter().enumerate() {
+                if let Some((n, g, hue)) = group {
+                    kit::SectionLabel::new(*n, g).aside("2").hue(Some(*hue)).clickable().show(ui, t);
+                }
+                let hue = (i > 0).then_some(t.slate);
+                let mut row = HoverRow::new((salt, "inst", i), name).description(desc).image(crate::icons::source(icon), 1.0).hue(hue).hot(self.key_row == Some(i)).selected(self.selected == i);
+                if *running {
+                    row = row.badge("running", t.ok());
+                }
+                if list.row(ui, t, row).clicked() {
+                    self.selected = i;
+                }
+            }
+            list.end(ui);
+        });
     }
 
     fn table_and_tiles(&mut self, ui: &mut Ui, t: &Tokens) {

@@ -1,43 +1,78 @@
 use egui::{Align, Layout, RichText, Sense, Ui, vec2};
 
-use super::widgets::{self as w, Lead};
+use super::widgets as w;
 use super::{App, Confirm, ConfirmAction, Modal, ToastKind, config, content, logs, new_instance, screenshots, servers, version, worlds};
-use crate::design::kit::{self, Button, Spec};
+use crate::design::kit::{self, Button, HoverList, HoverRow, SectionLabel, Spec, Variant};
 use crate::design::{glyphs as g, tokens as tk};
 use super::nav::{Nav, Zone};
 use crate::icons;
 use crate::instance::{self, ContentKind, Instance};
 use crate::shares::Kind;
 
+/// A view of an instance's page (a leaf: sections group them). `[`/`]` step through every
+/// leaf in this order, section by section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstTab {
-    Log,
-    Version,
+    /// Components and notes.
+    Overview,
     Mods,
-    Config,
     ResourcePacks,
     ShaderPacks,
-    Notes,
+    Config,
     Worlds,
     Servers,
     Screenshots,
+    Log,
     LogHistory,
 }
 
-impl InstTab {
-    pub const ALL: [(InstTab, &'static str); 11] = [
-        (InstTab::Version, "version"),
-        (InstTab::Log, "log"),
-        (InstTab::Mods, "mods"),
-        (InstTab::ResourcePacks, "resource packs"),
-        (InstTab::ShaderPacks, "shader packs"),
-        (InstTab::Config, "configs"),
-        (InstTab::Notes, "notes"),
-        (InstTab::Worlds, "worlds"),
-        (InstTab::Servers, "servers"),
-        (InstTab::Screenshots, "screenshots"),
-        (InstTab::LogHistory, "log history"),
+/// The page's sections, each a run of leaves; a section with more than one has sub-tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+    Overview,
+    Content,
+    Configs,
+    Worlds,
+    Screenshots,
+    Logs,
+}
+
+impl Section {
+    pub const ALL: [(Section, &'static str); 6] = [
+        (Section::Overview, "overview"),
+        (Section::Content, "content"),
+        (Section::Configs, "configs"),
+        (Section::Worlds, "worlds"),
+        (Section::Screenshots, "screenshots"),
+        (Section::Logs, "logs"),
     ];
+
+    /// Its leaves with their sub-tab labels, in `[`/`]` order.
+    pub fn leaves(self) -> &'static [(InstTab, &'static str)] {
+        match self {
+            Section::Overview => &[(InstTab::Overview, "overview")],
+            Section::Content => &[(InstTab::Mods, "mods"), (InstTab::ResourcePacks, "resource packs"), (InstTab::ShaderPacks, "shader packs")],
+            Section::Configs => &[(InstTab::Config, "configs")],
+            Section::Worlds => &[(InstTab::Worlds, "worlds"), (InstTab::Servers, "servers")],
+            Section::Screenshots => &[(InstTab::Screenshots, "screenshots")],
+            Section::Logs => &[(InstTab::Log, "live"), (InstTab::LogHistory, "history")],
+        }
+    }
+
+    pub fn of(tab: InstTab) -> Section {
+        Self::ALL.iter().map(|(s, _)| *s).find(|s| s.leaves().iter().any(|(l, _)| *l == tab)).unwrap()
+    }
+
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|(s, _)| *s == self).unwrap()
+    }
+}
+
+impl InstTab {
+    /// Every leaf, section by section.
+    pub fn all() -> impl Iterator<Item = InstTab> {
+        Section::ALL.into_iter().flat_map(|(s, _)| s.leaves().iter().map(|(l, _)| *l))
+    }
 
     pub fn content_kind(self) -> Option<ContentKind> {
         match self {
@@ -48,11 +83,12 @@ impl InstTab {
         }
     }
 
-    /// Next/previous tab, wrapping.
+    /// Next/previous leaf, wrapping.
     pub fn step(self, delta: isize) -> InstTab {
-        let n = Self::ALL.len() as isize;
-        let i = Self::ALL.iter().position(|(t, _)| *t == self).unwrap() as isize;
-        Self::ALL[((i + delta).rem_euclid(n)) as usize].0
+        let all: Vec<InstTab> = Self::all().collect();
+        let n = all.len() as isize;
+        let i = all.iter().position(|t| *t == self).unwrap() as isize;
+        all[((i + delta).rem_euclid(n)) as usize]
     }
 }
 
@@ -86,14 +122,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     // The list on the left, the selected instance's page on the right.
     let t = app.look.tokens.clone();
     egui::Panel::left("instance-list")
-        .exact_size((ui.available_width() * 0.24).clamp(200.0, 300.0))
+        .exact_size((ui.available_width() * tk::LIST_RAIL_SHARE).clamp(tk::LIST_RAIL_MIN, tk::LIST_RAIL_MAX))
         .resizable(false)
-        .frame(egui::Frame::new().fill(t.background).inner_margin(egui::Margin { left: 10, right: 10, top: 12, bottom: 10 }))
+        .frame(egui::Frame::new().fill(t.background))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            kit::vline(ui.painter(), r.right() + 10.0, r.y_range(), t.line_strong);
+            kit::vline(ui.painter(), r.right(), r.y_range(), t.line_strong);
             filter_line(app, ui);
-            ui.add_space(8.0);
             for a in list(app, ui) {
                 apply(app, &ctx, a);
             }
@@ -129,29 +164,45 @@ fn empty(app: &mut App, ui: &mut Ui) {
     });
 }
 
-/// The filter and the new-instance button over the list.
+/// The list's head: the filter as a large query line (`/` takes it over) and `new`.
 fn filter_line(app: &mut App, ui: &mut Ui) {
-    ui.horizontal(|ui| {
-        let focus = std::mem::take(&mut app.focus_filter);
-        let resp = w::text_input(ui, &mut app.filter, "/ filter", ui.available_width() - 40.0, focus);
-        if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            app.filter.clear();
-            resp.surrender_focus();
-        }
-        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            // Enter in the filter selects the first match.
-            if let Some(&n) = app.visible_instances().first() {
-                app.selected = Some(app.instances[n].id.clone());
+    let t = app.look.tokens.clone();
+    egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: tk::GAP as i8, bottom: tk::UNIT as i8 }).show(ui, |ui| {
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), tk::BUTTON_HEIGHT + tk::UNIT * 2.0), Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = tk::GAP;
+            if Button::new("new").icon(g::PLUS).show(ui, &t).on_hover_text("new or import (n / i)").clicked() {
+                app.modal = Some(Modal::NewInstance(Box::new(new_instance::NewInstance::new(&app.cfg))));
             }
-        }
-        if w::button(ui, "+").on_hover_text("new or import (n / i)").clicked() {
-            app.modal = Some(Modal::NewInstance(Box::new(new_instance::NewInstance::new(&app.cfg))));
-        }
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                let focus = std::mem::take(&mut app.focus_filter);
+                let resp = kit::query(ui, &t, &mut app.filter, "Filter", tk::SIZE_HEADING, focus);
+                if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    app.filter.clear();
+                    resp.surrender_focus();
+                }
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    // Enter in the filter selects the first match.
+                    if let Some(&n) = app.visible_instances().first() {
+                        app.selected = Some(app.instances[n].id.clone());
+                    }
+                }
+            });
+        });
     });
 }
 
+/// What a row says when you reach for it: the loader (by kind: its version is in the spec
+/// strip), the Minecraft version and the time played, short enough for the narrow list.
+fn description(inst: &Instance) -> String {
+    let game = format!("{} · {}", inst.loader.kind().label(), inst.mc_version);
+    match inst.played_secs {
+        0 => game,
+        s => format!("{game} · {}", instance::format_duration(s)),
+    }
+}
+
 fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let rows = app.list_rows();
     let groups = app.groups.names();
     let tint = |g: &str| app.groups.color(g).and_then(|c| t.named(c));
@@ -162,12 +213,13 @@ fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
     let focused = app.focus == Zone::List;
     let dragging = egui::DragAndDrop::payload::<DragInst>(&ctx)
         .and_then(|p| app.instances.iter().find(|i| i.id == p.0).cloned());
-    // Each group's rows, to outline the one being dropped on.
-    let mut blocks: Vec<(String, egui::Rect)> = Vec::new();
+    // The group the pointer would drop into (its section label's rule turns accent), as
+    // found last frame: the label is drawn before the rows that can be its target.
+    let target_id = egui::Id::new("instance-drop-target");
+    let last_target: Option<String> = ctx.data(|d| d.get_temp(target_id)).flatten();
     let mut hover_target: Option<String> = None;
-    // Treat a row as a drop target for `group`.
-    let drop_on = |r: &egui::Response, group: &str, actions: &mut Vec<RowAction>, blocks: &mut Vec<(String, egui::Rect)>, hover: &mut Option<String>| {
-        blocks.push((group.to_string(), r.rect));
+    // Treat a row as a drop target for `group`. Rows hit-test on their unshifted rect.
+    let drop_on = |r: &egui::Response, group: &str, actions: &mut Vec<RowAction>, hover: &mut Option<String>| {
         let Some(d) = &dragging else { return };
         if r.dnd_hover_payload::<DragInst>().is_some() && d.group != group {
             *hover = Some(group.to_string());
@@ -179,13 +231,28 @@ fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
         }
     };
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.spacing_mut().item_spacing.y = 0.0;
+        if rows.is_empty() {
+            egui::Frame::new().inner_margin(egui::Margin::symmetric(tk::GUTTER as i8, tk::GAP as i8)).show(ui, |ui| {
+                kit::caption(ui, &t, "nothing matches");
+            });
+        }
+        // Titles start a shift in from the gutter, so a hot one lands on it.
+        let mut list = HoverList::begin(ui, Variant::Compact).indent(tk::GUTTER + tk::HOVER_SHIFT_COMPACT);
+        let mut number = 0;
         for row in &rows {
             match row {
                 ListRow::Group { name, count, collapsed } => {
-                    ui.add_space(4.0);
-                    let r = w::group_row(ui, &t, name, *count, *collapsed, tint(name));
-                    drop_on(&r, name, &mut actions, &mut blocks, &mut hover_target);
+                    number += 1;
+                    let aside = if *collapsed { format!("{count} · folded") } else { count.to_string() };
+                    let r = SectionLabel::new(number, name)
+                        .aside(&aside)
+                        .hue(tint(name))
+                        .clickable()
+                        .drop_target(last_target.as_deref() == Some(name.as_str()))
+                        .show(ui, &t)
+                        .on_hover_text(if *collapsed { "show" } else { "fold" });
+                    drop_on(&r, name, &mut actions, &mut hover_target);
                     let g = name.clone();
                     r.context_menu(|ui| {
                         if ui.button("manage groups…").clicked() {
@@ -199,15 +266,22 @@ fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
                 ListRow::Instance(n) => {
                     let inst = &app.instances[*n];
                     let sel = app.selected.as_deref() == Some(inst.id.as_str());
-                    let right = if app.is_running(&inst.id) { "● running" } else { inst.mc_version.as_str() };
-                    let r = w::drag_row(ui, &t, sel, Lead::Image(icons::source(&inst.icon)), &inst.name, right, tint(&inst.group));
+                    let desc = description(inst);
+                    let mut row = HoverRow::new(("instance", &inst.id), &inst.name)
+                        .description(&desc)
+                        .image(icons::source(&inst.icon), 1.0)
+                        .hue(tint(&inst.group))
+                        .selected(sel)
+                        .hot(sel && focused)
+                        .sense(Sense::click_and_drag());
+                    if app.is_running(&inst.id) {
+                        row = row.badge("running", t.ok());
+                    }
+                    let r = list.row(ui, &t, row);
                     r.dnd_set_drag_payload(DragInst(inst.id.clone()));
-                    drop_on(&r, &inst.group, &mut actions, &mut blocks, &mut hover_target);
+                    drop_on(&r, &inst.group, &mut actions, &mut hover_target);
                     if sel && scroll {
                         r.scroll_to_me(None);
-                    }
-                    if sel && focused {
-                        w::focus_mark(ui, &t, r.rect);
                     }
                     if r.clicked() {
                         actions.push(RowAction::Select(inst.id.clone()));
@@ -219,7 +293,7 @@ fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
                     let current = inst.group.clone();
                     r.context_menu(|ui| {
                         actions.push(RowAction::Select(id.clone()));
-                        if ui.button("󰐊 play").clicked() {
+                        if ui.button("play").clicked() {
                             actions.push(RowAction::Launch(id.clone()));
                         }
                         if ui.button("edit…").clicked() {
@@ -240,7 +314,7 @@ fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
                                     actions.push(RowAction::SetGroup(id.clone(), g.clone()));
                                 }
                             }
-                            if !current.is_empty() && ui.button(RichText::new("no group").color(t.muted)).clicked() {
+                            if !current.is_empty() && ui.button(RichText::new("no group").color(t.text_muted)).clicked() {
                                 actions.push(RowAction::SetGroup(id.clone(), String::new()));
                             }
                             if ui.button("manage groups…").clicked() {
@@ -255,37 +329,37 @@ fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
                             }
                         });
                         ui.separator();
-                        if ui.button(RichText::new("delete…").color(t.red)).clicked() {
+                        if ui.button(RichText::new("delete…").color(t.error())).clicked() {
                             actions.push(RowAction::Delete(id.clone()));
                         }
                     });
                 }
             }
         }
+        list.end(ui);
 
-        // A strip to drop on to leave a group, while dragging a grouped instance.
+        // A place to drop on to leave a group, while dragging a grouped instance: a framed
+        // row, accent while the pointer is over it.
         if let Some(d) = dragging.as_ref().filter(|d| !d.group.is_empty()) {
-            ui.add_space(8.0);
-            let (rect, r) = ui.allocate_exact_size(egui::vec2(ui.available_width(), w::row_height(&t) + 8.0), Sense::hover());
+            ui.add_space(tk::GAP);
+            let (rect, r) = ui.allocate_exact_size(vec2(ui.available_width(), tk::LIST_ROW_HEIGHT_COMPACT), Sense::hover());
             let on = r.dnd_hover_payload::<DragInst>().is_some();
-            let color = if on { t.fg } else { t.muted };
-            ui.painter().rect_stroke(rect, 0.0, egui::Stroke::new(1.0, if on { t.fg_a(0.6) } else { t.fg_a(0.2) }), egui::StrokeKind::Inside);
-            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, format!("drop here to remove from {}", d.group), egui::FontId::monospace(t.body_size() - 1.0), color);
+            let rect = rect.shrink2(vec2(tk::GUTTER, 0.0));
+            let c = crate::design::motion::color(&ctx, r.id, on, t.line_strong, t.accent);
+            kit::rule::frame(ui.painter(), rect, c);
+            let ink = if on { t.accent } else { t.text_muted };
+            kit::text::paint_caption(ui.painter(), egui::pos2(rect.left() + tk::GAP, rect.center().y), &format!("drop here to leave {}", d.group), ink);
             if let Some(p) = r.dnd_release_payload::<DragInst>() {
                 actions.push(RowAction::SetGroup(p.0.clone(), String::new()));
             }
         }
-
-        if let Some(g) = &hover_target {
-            let rect = blocks.iter().filter(|(b, _)| b == g).map(|(_, r)| *r).reduce(|a, b| a.union(b));
-            if let Some(rect) = rect {
-                let color = tint(g).unwrap_or(t.accent);
-                ui.painter().rect_stroke(rect.expand(2.0), 0.0, egui::Stroke::new(2.0, color), egui::StrokeKind::Outside);
-            }
-        }
     });
+    ctx.data_mut(|d| d.insert_temp(target_id, hover_target.clone()));
+    if hover_target != last_target {
+        ctx.request_repaint();
+    }
 
-    // What's being dragged follows the pointer.
+    // What's being dragged follows the pointer: its icon and name in a hairline frame.
     if let Some(d) = &dragging {
         ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
         if let Some(pos) = ctx.pointer_interact_pos() {
@@ -294,11 +368,11 @@ fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
                 .fixed_pos(pos + egui::vec2(14.0, 10.0))
                 .interactable(false)
                 .show(&ctx, |ui| {
-                    egui::Frame::new().fill(t.bg).stroke(egui::Stroke::new(1.0, t.border_active)).inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
+                    egui::Frame::new().fill(t.background).stroke(egui::Stroke::new(tk::LINE, t.line_strong)).inner_margin(egui::Margin::symmetric(tk::GAP as i8, tk::UNIT as i8)).show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            let s = t.body_size() + 4.0;
-                            ui.add(egui::Image::new(icons::source(&d.icon)).fit_to_exact_size(egui::vec2(s, s)));
-                            ui.label(RichText::new(&d.name).color(t.fg));
+                            ui.spacing_mut().item_spacing.x = tk::UNIT;
+                            ui.add(egui::Image::new(icons::source(&d.icon)).corner_radius(0).fit_to_exact_size(egui::vec2(tk::ICON_SIZE, tk::ICON_SIZE)));
+                            kit::heading_small(ui, &t, &d.name);
                         });
                     });
                 });
@@ -354,19 +428,24 @@ fn apply(app: &mut App, ctx: &egui::Context, a: RowAction) {
 }
 
 fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
+    // The spec strip, the search banner and the section tabs share their hairlines: no
+    // spacing between them (the header sets it to 0 before the strip).
+    let spacing = ui.spacing().item_spacing.y;
     header(app, ui, inst);
-    egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: 18, top: 0, bottom: 12 }).show(ui, |ui| {
+    egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: 0, bottom: 0 }).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = spacing;
         super::mod_sets::banner(app, ui, inst);
-        ui.add_space(14.0);
-        w::tab_strip(ui, &app.t.clone(), &mut app.inst_tab, &InstTab::ALL);
+    });
+    sections(app, ui);
+    ui.spacing_mut().item_spacing.y = spacing;
+    egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: tk::GAP as i8, bottom: tk::GAP as i8 }).show(ui, |ui| {
         // Files dropped now go into this tab's folder: its pane is what the drop hint frames.
-        app.drop_rect = Some(ui.available_rect_before_wrap().expand2(vec2(tk::GUTTER, 12.0)));
+        app.drop_rect = Some(ui.available_rect_before_wrap().expand2(vec2(tk::GUTTER, tk::GAP)));
 
         match app.inst_tab {
+            InstTab::Overview => overview(app, ui, inst),
             InstTab::Log => logs::live(app, ui, inst),
-            InstTab::Version => version::show(app, ui, inst),
             InstTab::Config => config::show(app, ui, inst),
-            InstTab::Notes => notes(app, ui, inst),
             InstTab::Worlds => worlds::show(app, ui, inst),
             InstTab::Servers => servers::show(app, ui, inst),
             InstTab::Screenshots => screenshots::show(app, ui, inst),
@@ -374,6 +453,47 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
             tab => content::show(app, ui, inst, tab.content_kind().unwrap()),
         }
     });
+}
+
+/// The section tabs (hairline cells, the open one marked), then the open section's sub-tabs
+/// where it has more than one view. A section opens on the view it was last left on.
+fn sections(app: &mut App, ui: &mut Ui) {
+    let t = app.look.tokens.clone();
+    let open = Section::of(app.inst_tab);
+    app.section_leaf[open.index()] = Some(app.inst_tab);
+    // Numbered cells with full padding if they fit, else tighter, else without numbers.
+    let cells = |numbers: bool, pad: f32| -> Vec<kit::BarCell<'static>> {
+        Section::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, (s, label))| {
+                let c = kit::BarCell::new(label).open(*s == open).padding(pad);
+                if numbers { c.number(i + 1) } else { c }
+            })
+            .collect()
+    };
+    let room = ui.available_width();
+    let fits = |cs: &[kit::BarCell]| cs.iter().map(|c| c.width(ui, &t)).sum::<f32>() <= room;
+    let choice = [(true, tk::BAR_CELL_PADDING), (true, tk::GAP), (false, tk::GAP), (false, tk::UNIT)]
+        .into_iter()
+        .map(|(n, p)| cells(n, p))
+        .find(|cs| fits(cs))
+        .unwrap_or_else(|| cells(false, tk::UNIT));
+    let clicked = kit::bar(ui, &t, |ui| choice.into_iter().enumerate().find_map(|(i, c)| c.show(ui, &t).clicked().then_some(i)));
+    if let Some(i) = clicked {
+        let s = Section::ALL[i].0;
+        if s != open {
+            app.inst_tab = app.section_leaf[i].unwrap_or(s.leaves()[0].0);
+        }
+    }
+    let leaves = open.leaves();
+    if leaves.len() > 1 {
+        egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: tk::GAP as i8, bottom: 0 }).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                kit::segmented(ui, &t, &mut app.inst_tab, leaves);
+            });
+        });
+    }
 }
 
 /// The instance page's head: a caption line (the section number, the loader and version, the
@@ -436,6 +556,7 @@ fn header(app: &mut App, ui: &mut Ui, inst: &Instance) {
     ];
     // As many cells as fit, about 110px each; the first ones matter most.
     let fit = ((width / 110.0) as usize).clamp(3, cells.len());
+    ui.spacing_mut().item_spacing.y = 0.0;
     if kit::spec_strip(ui, &t, &cells[..fit]).is_some() {
         app.modal = Some(Modal::Edit(Box::new(EditState::from(inst))));
     }
@@ -452,22 +573,54 @@ fn caption_link(ui: &mut Ui, t: &tk::Tokens, text: &str) -> egui::Response {
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn notes(app: &mut App, ui: &mut Ui, inst: &Instance) {
-    let t = app.t.clone();
-    let write = app.nav_for(Zone::Main) == Some(Nav::Activate);
-    let focused = app.focus == Zone::Main;
+/// Overview: the components (and changing them) on the left, the notes on the right, with a
+/// hairline between. The version picker takes over the whole section while it's open.
+fn overview(app: &mut App, ui: &mut Ui, inst: &Instance) {
+    if app.version.picker_open() {
+        return version::show(app, ui, inst);
+    }
+    let t = app.look.tokens.clone();
+    let area = ui.available_rect_before_wrap();
+    // Too narrow for two columns: the components, then the notes under them.
+    if area.width() < tk::OVERVIEW_TWO_COLUMNS {
+        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            version::show(app, ui, inst);
+            ui.add_space(tk::GUTTER);
+            kit::rule(ui, &t, false);
+            ui.add_space(tk::GUTTER);
+            notes(app, ui, inst, false);
+        });
+        return;
+    }
+    let left_w = ((area.width() - tk::GUTTER * 2.0) * 0.5).min(tk::OVERVIEW_COLUMN_MAX).floor();
+    let line_x = area.left() + left_w + tk::GUTTER;
+    let left = egui::Rect::from_min_max(area.min, egui::pos2(area.left() + left_w, area.bottom()));
+    let right = egui::Rect::from_min_max(egui::pos2(line_x + tk::GUTTER, area.top()), area.max);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(left).layout(Layout::top_down(Align::Min)), |ui| version::show(app, ui, inst));
+    kit::vline(ui.painter(), line_x, area.y_range(), t.line);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(right).layout(Layout::top_down(Align::Min)), |ui| notes(app, ui, inst, true));
+    ui.allocate_rect(area, Sense::hover());
+}
+
+/// The instance's notes, saved as they're typed. The side zone: `enter` writes. `fill`: down
+/// to the foot of the column, else a few lines (under the components, in a scrolling page).
+fn notes(app: &mut App, ui: &mut Ui, inst: &Instance, fill: bool) {
+    let t = app.look.tokens.clone();
+    let write = app.nav_for(Zone::Side) == Some(Nav::Activate);
+    let focused = app.focus == Zone::Side;
+    kit::caption(ui, &t, "notes");
+    ui.add_space(tk::UNIT);
     let Some(i) = app.instances.iter_mut().find(|i| i.id == inst.id) else { return };
-    let edit = egui::TextEdit::multiline(&mut i.notes)
-        .hint_text("Anything worth remembering: seeds, coordinates, server addresses, what you changed…")
-        .margin(vec2(10.0, 8.0))
-        .desired_width(f32::INFINITY);
-    let stroke = if focused { egui::Stroke::new(1.0, t.accent) } else { egui::Stroke::NONE };
-    let r = egui::Frame::new().fill(t.bg_dark).stroke(stroke).show(ui, |ui| ui.add_sized(ui.available_size(), edit)).inner;
+    let r = kit::field::notes_sized(ui, &t, &mut i.notes, "Anything worth remembering: seeds, coordinates, server addresses, what you changed…", 6, if fill { ui.available_height() } else { 0.0 });
+    // The pane has the keyboard: its frame says so, as the field's own focus does.
+    if focused && !r.has_focus() {
+        kit::rule::frame(ui.painter(), r.rect, t.accent);
+    }
     if write {
         r.request_focus();
     }
     if r.clicked() || r.has_focus() {
-        app.focus = Zone::Main;
+        app.focus = Zone::Side;
     }
     if r.changed()
         && let Err(e) = i.save()
@@ -787,6 +940,28 @@ impl App {
 mod tests {
     use super::*;
     use crate::loaders::Loader;
+
+    #[test]
+    fn every_view_is_in_one_section_and_brackets_reach_them_all() {
+        let all: Vec<InstTab> = InstTab::all().collect();
+        assert_eq!(all.len(), 10);
+        for tab in &all {
+            assert_eq!(all.iter().filter(|t| *t == tab).count(), 1, "{tab:?} listed once");
+            assert!(Section::of(*tab).leaves().iter().any(|(l, _)| l == tab));
+        }
+        // `]` walks every view section by section and wraps; `[` walks back.
+        let mut tab = InstTab::Overview;
+        let mut seen = vec![tab];
+        for _ in 1..all.len() {
+            tab = tab.step(1);
+            seen.push(tab);
+        }
+        assert_eq!(seen, all);
+        assert_eq!(tab.step(1), InstTab::Overview);
+        assert_eq!(InstTab::Overview.step(-1), InstTab::LogHistory);
+        let sections: Vec<Section> = seen.iter().map(|t| Section::of(*t)).collect();
+        assert!(sections.windows(2).all(|w| w[0].index() <= w[1].index()), "sections stay in order");
+    }
 
     #[test]
     fn set_members_count_instances_still_linked_in() {

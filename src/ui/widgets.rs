@@ -71,11 +71,6 @@ pub fn lead_row(ui: &mut Ui, t: &Theme, selected: bool, lead: Lead, left: &str, 
     lead_row_sense(ui, t, selected, lead, left, right, tint, Sense::click())
 }
 
-/// [`lead_row`] that can also be dragged.
-pub fn drag_row(ui: &mut Ui, t: &Theme, selected: bool, lead: Lead, left: &str, right: &str, tint: Option<Color32>) -> Response {
-    lead_row_sense(ui, t, selected, lead, left, right, tint, Sense::click_and_drag())
-}
-
 #[allow(clippy::too_many_arguments)]
 fn lead_row_sense(ui: &mut Ui, t: &Theme, selected: bool, lead: Lead, left: &str, right: &str, tint: Option<Color32>, sense: Sense) -> Response {
     let h = row_height(t);
@@ -196,60 +191,6 @@ pub fn rich_row_action(ui: &mut Ui, t: &Theme, selected: bool, lead: Lead, title
 pub fn focus_mark(ui: &Ui, t: &Theme, rect: Rect) {
     let bar = Rect::from_min_size(rect.min, vec2(3.0, rect.height()));
     ui.painter().rect_filled(bar, CornerRadius::ZERO, t.accent);
-}
-
-/// Collapsible group header in a list.
-pub fn group_row(ui: &mut Ui, t: &Theme, name: &str, count: usize, collapsed: bool, tint: Option<Color32>) -> Response {
-    let size = t.body_size() - 1.0;
-    let h = size + 14.0;
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
-    if ui.is_rect_visible(rect) {
-        let p = ui.painter();
-        let color = match tint {
-            Some(c) => c,
-            None if resp.hovered() => t.fg,
-            None => t.muted,
-        };
-        let arrow = if collapsed { "\u{f44a}" } else { "\u{f44b}" };
-        let g = p.layout_no_wrap(format!("{arrow} {name}"), FontId::monospace(size), color);
-        let tw = g.size().x;
-        p.galley(egui::pos2(rect.left() + 6.0, rect.center().y - g.size().y / 2.0), g, color);
-        let c = p.layout_no_wrap(count.to_string(), FontId::monospace(size), t.muted);
-        let cw = c.size().x;
-        p.galley(egui::pos2(rect.right() - 12.0 - cw, rect.center().y - c.size().y / 2.0), c, t.muted);
-        let (l, r) = (rect.left() + 14.0 + tw, rect.right() - 20.0 - cw);
-        if r > l {
-            let line = tint.map(|c| Theme::alpha(c, 0.35)).unwrap_or(t.fg_a(0.12));
-            p.hline(l..=r, rect.center().y, Stroke::new(1.0, line));
-        }
-    }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-/// Text tabs with an accent underline, wrapping onto more lines when narrow.
-pub fn tab_strip<T: PartialEq + Copy>(ui: &mut Ui, t: &Theme, value: &mut T, options: &[(T, &str)]) -> bool {
-    let mut changed = false;
-    ui.horizontal_wrapped(|ui| {
-        // Room under each line for the active tab's underline.
-        ui.spacing_mut().item_spacing = vec2(16.0, 14.0);
-        for (v, label) in options {
-            let on = *value == *v;
-            let color = if on { t.fg_light } else { t.muted };
-            let r = ui.add(egui::Label::new(RichText::new(*label).color(color)).sense(Sense::click()));
-            if on {
-                ui.painter().hline(r.rect.x_range(), r.rect.bottom() + 4.0, Stroke::new(2.0, t.accent));
-            }
-            if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
-                *value = *v;
-                changed = true;
-            }
-        }
-    });
-    let r = ui.available_rect_before_wrap();
-    ui.add_space(8.0);
-    ui.painter().hline(r.x_range(), r.top() + 4.0, Stroke::new(1.0, t.fg_a(0.12)));
-    ui.add_space(8.0);
-    changed
 }
 
 /// Centered glyph, title and hint for an empty tab.

@@ -98,6 +98,11 @@ impl<'a> Field<'a> {
 
 /// A notes area: a 1px frame, no well, Switzer 16 at a reading line height, `rows` tall.
 pub fn notes(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, rows: usize) -> Response {
+    notes_sized(ui, t, value, hint, rows, 0.0)
+}
+
+/// A notes area at least `min_height` tall (one that fills its column down to the page's foot).
+pub fn notes_sized(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, rows: usize, min_height: f32) -> Response {
     let size = tk::SIZE_READING;
     let line = size * tk::READING_LINE_HEIGHT;
     let color = t.text_strong;
@@ -118,6 +123,7 @@ pub fn notes(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, rows: usiz
                     .hint_text(RichText::new(hint).font(fonts::text(size)).color(t.text_muted))
                     .desired_width(ui.available_width())
                     .desired_rows(rows)
+                    .min_size(vec2(0.0, min_height))
                     .layouter(&mut layouter),
             )
         })

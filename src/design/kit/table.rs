@@ -48,6 +48,8 @@ pub enum Cell {
     Figure(String),
     /// An uppercase caption, in a colour (a clarity hue for a status, or muted).
     Caption(String, Option<Color32>),
+    /// A small picture (content: a loader's logo) before body text, `text_strong`.
+    Lead(egui::ImageSource<'static>, String),
 }
 
 fn widths(columns: &[Column], total: f32) -> Vec<f32> {
@@ -102,6 +104,13 @@ pub fn row(ui: &mut Ui, t: &Tokens, columns: &[Column], cells: &[Cell], selected
                 let gx = if c.right { x + w - g.size().x } else { x };
                 p.galley(egui::pos2(gx, cy - g.size().y / 2.0), g, color);
             }
+            Cell::Lead(src, s) => {
+                let size = tk::ICON_SIZE;
+                let r = Rect::from_min_size(egui::pos2(x, cy - size / 2.0), vec2(size, size));
+                egui::Image::new(src.clone()).corner_radius(0).paint_at(ui, r.intersect(clip));
+                let g = p.layout_no_wrap(s.clone(), fonts::text(tk::SIZE_BODY), t.text_strong);
+                p.galley(egui::pos2(x + size + tk::UNIT, cy - g.size().y / 2.0), g, t.text_strong);
+            }
             Cell::Text(s) | Cell::Muted(s) => {
                 let color = if matches!(cell, Cell::Text(_)) { t.text_strong } else { t.text_muted };
                 let g = p.layout_no_wrap(s.clone(), fonts::text(tk::SIZE_BODY), color);
@@ -113,7 +122,7 @@ pub fn row(ui: &mut Ui, t: &Tokens, columns: &[Column], cells: &[Cell], selected
     }
     rule::hline(ui.painter(), rect.x_range(), rect.bottom() - 0.5, t.line);
     let label = cells.iter().map(|c| match c {
-        Cell::Text(s) | Cell::Muted(s) | Cell::Figure(s) | Cell::Caption(s, _) => s.as_str(),
+        Cell::Text(s) | Cell::Muted(s) | Cell::Figure(s) | Cell::Caption(s, _) | Cell::Lead(_, s) => s.as_str(),
     }).collect::<Vec<_>>().join(", ");
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &label));
     resp

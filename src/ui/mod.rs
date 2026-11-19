@@ -193,6 +193,8 @@ pub struct App {
     pub focus_filter: bool,
     pub tab: Tab,
     pub inst_tab: InstTab,
+    /// The view each section of an instance's page was last left on (by `Section::index`).
+    pub section_leaf: [Option<InstTab>; 6],
     /// Which pane the keyboard drives.
     pub focus: Zone,
     /// This frame's navigation key, taken by whichever pane has focus.
@@ -271,7 +273,8 @@ impl App {
             filter: String::new(),
             focus_filter: false,
             tab: Tab::Instances,
-            inst_tab: InstTab::Version,
+            inst_tab: InstTab::Overview,
+            section_leaf: [None; 6],
             focus: Zone::List,
             nav: None,
             scroll_list: false,
@@ -337,7 +340,8 @@ impl App {
         rows.extend(ungrouped.map(|(n, _)| ListRow::Instance(n)));
         for g in self.groups.names() {
             let members: Vec<usize> = self.instances.iter().enumerate().filter(|(_, i)| i.group == g && matches(i)).map(|(n, _)| n).collect();
-            if members.is_empty() {
+            // While filtering, a group with no matches stays, with a count of 0: the list holds still.
+            if members.is_empty() && f.is_empty() {
                 continue;
             }
             let collapsed = f.is_empty() && self.cfg.collapsed_groups.contains(&g);
@@ -938,7 +942,7 @@ impl App {
                 }
             }
             Action::LoaderType => {
-                if self.inst_tab == InstTab::Version {
+                if self.inst_tab == InstTab::Overview {
                     self.version.cycle_loader();
                 }
             }
@@ -976,7 +980,7 @@ impl App {
                 }
             }
             Action::Back => {
-                if self.inst_tab == InstTab::Version && self.version.picker_open() {
+                if self.inst_tab == InstTab::Overview && self.version.picker_open() {
                     self.version.close();
                     self.focus = Zone::Main;
                 } else if self.focus != Zone::List {

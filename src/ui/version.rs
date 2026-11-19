@@ -5,6 +5,8 @@ use egui::{RichText, Ui};
 use super::nav::{Nav, Zone};
 use super::version_picker::VersionPicker;
 use super::widgets as w;
+use crate::design::kit::{self, Button, table::{Cell, Column}};
+use crate::design::tokens as tk;
 use super::App;
 use super::{Toast, ToastKind};
 use crate::instance::Instance;
@@ -50,43 +52,11 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
         app.version.picker = None;
     }
 
-    w::section(ui, &t, "components");
-    w::rich_row(ui, &t, false, w::Lead::Image(crate::icons::source("grass")), "Minecraft", &inst.mc_version, "");
-    match &inst.loader {
-        Loader::Vanilla => {}
-        Loader::Fabric(v) => {
-            w::rich_row(ui, &t, false, w::Lead::Image(crate::icons::source("fabricmc")), "Fabric Loader", v, "");
-        }
-        Loader::Quilt(v) => {
-            w::rich_row(ui, &t, false, w::Lead::Image(crate::icons::source("quiltmc")), "Quilt Loader", v, "");
-        }
-        Loader::Forge(v) => {
-            w::rich_row(ui, &t, false, w::Lead::Image(crate::icons::source("gear")), "Forge", v, "");
-        }
-        Loader::NeoForge(v) => {
-            w::rich_row(ui, &t, false, w::Lead::Image(crate::icons::source("neoforged")), "NeoForge", v, "");
-        }
-    }
-    ui.add_space(10.0);
-
     let main_nav = app.nav_for(Zone::Main);
-    let Some((_, picker)) = &mut app.version.picker else {
-        ui.horizontal(|ui| {
-            let running = app.is_running(&inst.id);
-            let r = ui.add_enabled_ui(!running, |ui| w::button(ui, "change version…")).inner;
-            if app.focus == Zone::Main {
-                w::focus_mark(ui, &t, r.rect);
-            }
-            if r.clicked() || (!running && main_nav == Some(Nav::Activate)) {
-                let p = VersionPicker::new(app.cfg.show_snapshots, Some((&inst.mc_version, &inst.loader)));
-                app.version.picker = Some((inst.id.clone(), p));
-            }
-            if running {
-                ui.label(RichText::new("stop the game to change versions").color(t.muted));
-            }
-        });
-        return;
-    };
+    if app.version.picker.is_none() {
+        return components(app, ui, inst, main_nav);
+    }
+    let Some((_, picker)) = &mut app.version.picker else { return };
 
     let mut picker = std::mem::replace(picker, VersionPicker::new(false, None));
     picker.poll(app, ui.ctx());
@@ -132,6 +102,35 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
         app.version.picker = None;
     } else if let Some((_, slot)) = &mut app.version.picker {
         *slot = picker;
+    }
+}
+
+/// The components as a quiet table (loader logos small, as they are), then `change version`.
+fn components(app: &mut App, ui: &mut Ui, inst: &Instance, nav: Option<Nav>) {
+    let t = app.look.tokens.clone();
+    let cols = [Column::fill("component"), Column::fixed("version", tk::COMPONENT_VERSION_WIDTH).right()];
+    kit::table::header(ui, &t, &cols);
+    let row = |ui: &mut Ui, icon: &str, name: &str, version: &str| {
+        kit::table::row(ui, &t, &cols, &[Cell::Lead(crate::icons::source(icon), name.into()), Cell::Figure(version.into())], false);
+    };
+    row(ui, "grass", "Minecraft", &inst.mc_version);
+    match &inst.loader {
+        Loader::Vanilla => {}
+        Loader::Fabric(v) => row(ui, "fabricmc", "Fabric Loader", v),
+        Loader::Quilt(v) => row(ui, "quiltmc", "Quilt Loader", v),
+        Loader::Forge(v) => row(ui, "gear", "Forge", v),
+        Loader::NeoForge(v) => row(ui, "neoforged", "NeoForge", v),
+    }
+    ui.add_space(tk::GUTTER);
+    let running = app.is_running(&inst.id);
+    let r = Button::new("change version").enabled(!running).hot(app.focus == Zone::Main).show(ui, &t);
+    if running {
+        ui.add_space(tk::UNIT);
+        kit::caption(ui, &t, "stop the game to change versions");
+    }
+    if !running && (r.clicked() || nav == Some(Nav::Activate)) {
+        let p = VersionPicker::new(app.cfg.show_snapshots, Some((&inst.mc_version, &inst.loader)));
+        app.version.picker = Some((inst.id.clone(), p));
     }
 }
 

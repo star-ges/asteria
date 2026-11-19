@@ -229,6 +229,10 @@ pub const LIST_INDENT: f32 = 120.0;
 pub const LIST_DESCRIPTION_GAP: f32 = 28.0;
 pub const LIST_DESCRIPTION_WIDTH: f32 = 300.0;
 pub const LIST_DESCRIPTION_LINES: usize = 3;
+/// Below this much room for a compact title beside its description, the description goes under it.
+pub const LIST_TITLE_MIN: f32 = 120.0;
+/// Between a title and the description under it.
+pub const LIST_STACK_GAP: f32 = 2.0;
 pub const LIST_ROW_HEIGHT_COMPACT: f32 = 56.0;
 pub const LIST_INDENT_COMPACT: f32 = 64.0;
 pub const LIST_DESCRIPTION_GAP_COMPACT: f32 = 20.0;
@@ -236,6 +240,16 @@ pub const LIST_DESCRIPTION_WIDTH_COMPACT: f32 = 170.0;
 /// Quiet rows (long navigators like the configs tree): no shift, no stars.
 pub const LIST_ROW_HEIGHT_QUIET: f32 = 32.0;
 pub const LIST_INDENT_QUIET: f32 = 24.0;
+/// The instance list beside an instance's page: about a quarter of the window, within these.
+pub const LIST_RAIL_MIN: f32 = 240.0;
+pub const LIST_RAIL_MAX: f32 = 360.0;
+pub const LIST_RAIL_SHARE: f32 = 0.26;
+/// The overview's left column (components) at most; the notes take the rest.
+pub const OVERVIEW_COLUMN_MAX: f32 = 520.0;
+/// Below this width the overview's columns stack.
+pub const OVERVIEW_TWO_COLUMNS: f32 = 720.0;
+/// The components table's version column.
+pub const COMPONENT_VERSION_WIDTH: f32 = 140.0;
 /// Leftward shift of the hot title.
 pub const HOVER_SHIFT: f32 = 32.0;
 pub const HOVER_SHIFT_COMPACT: f32 = 20.0;

@@ -63,7 +63,7 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 | `icons.rs`, `fsutil.rs`, `net.rs`, `task.rs` | Instance icons, reflink copy, HTTP + downloads, background `Task`/`Promise` |
 | `ui/mod.rs` | `App`, the bars (kit cells; the bottom one in the foreground so notices stay clickable over a sheet), notices, dialogs as sheets and the confirm strip, key routing, launching, imports |
 | `ui/nav.rs` | Focus zones, `Nav`, hints bar and `?` help, both built from the keymap |
-| `ui/instances.rs` | The instance list (groups, drag-and-drop, context menu) beside the selected instance's page: the header (name, play/edit/folder, spec strip) + tab dispatch |
+| `ui/instances.rs` | The instance list (a compact `HoverList`: groups as numbered `SectionLabel`s, drag-and-drop, context menu, the filter as a query line) beside the selected instance's page: the header (name, play/edit/folder, spec strip), the six sections (`Section`, bar cells) over their views (`InstTab`, the leaves; sub-tabs where a section has several; `[`/`]` step through every leaf), and the overview (components + notes) |
 | `vanilla_options.rs`, `shader_config.rs` | The configs tab's other parts: `options.txt` as named, sectioned fields (`KNOWN` table; unknown keys under "other"); shader pack options read from the pack (`#define`s, `const`s with `// [values]`, `shaders.properties` screens and sliders, `lang/en_us.lang` names), saved to `shaderpacks/<pack>.txt` |
 | `mod_config.rs`, `ui/config.rs` | Configs tab (minecraft · mods · shaders): `config/` files grouped by mod (folding, kept in `<data>/config-view.toml`); TOML (`toml_edit` spans) and JSON/JSON5 (own parser) as fields with comment hints (range, allowed values, default); edits splice only the value's bytes; conflict-checked saves |
 | `mod_sets.rs`, `bisect.rs`, `ui/mod_sets.rs` | Mod sets (`mod_sets.toml`: named on/off arrangements keyed by jar mod id, else versionless file name); the search for the breaking mod (`bisect.toml`: dependency-closed halving, a confirming step, exact restore); the mods tab's set line, sets dialog, search dialogs and banner |
@@ -382,7 +382,11 @@ test (and a rule here) with any fix that sets a new one.
 - **Isolate data:** never test against real data. Set `XDG_DATA_HOME`/`XDG_CONFIG_HOME` to a scratch dir.
 - **Driving it:** add temporary hooks in `App::new` / `App::ui`, then remove them before committing.
   - `ASTERIA_DEBUG_VIEW=<instance-id>:<tab>` sets the starting view.
-  - `ASTERIA_DEBUG_KEYS=l,j,shift+j,space` injects one key every few frames as `egui::Event::Key`.
+  - `ASTERIA_DEBUG_KEYS=l,j,shift+j,space` injects one key every few frames as `egui::Event::Key` (egui's key
+    names: `]`, not `bracketright`).
+  - Pointer input (clicks, drags) must go in through `raw_input_hook`, not `ctx.input_mut` mid-frame (egui has
+    already worked out hover and drags by then), and `main.rs`'s `Root` wraps `App`, so forward the hook from
+    `Root` too.
   - Never inject input through the compositor (e.g. Hyprland's send-key dispatchers): it types into whatever window has focus.
 - **Kit gallery:** `ASTERIA_DEBUG_VIEW=kit` (with `ASTERIA_KIT_SECTION=<n>`, `ASTERIA_KIT_PALETTE=light|dark|both`,
   `ASTERIA_KIT_KEY_ROW=<n>`). Look at it at full size: Asteria is full-width first.
