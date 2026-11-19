@@ -18,6 +18,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             w::section(ui, &t, "appearance");
             w::kv(ui, &t, "colours", if t.dark { "dark" } else { "light" });
             let font = app
+                .look
                 .fonts
                 .regular
                 .as_ref()
@@ -25,6 +26,16 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "egui default".into());
             w::kv(ui, &t, "font", font);
+            // Fontshare's licence doesn't allow bundling Switzer or Melodrama.
+            let missing = &app.look.fonts.missing;
+            if !missing.is_empty() {
+                let names = missing.join(" and ");
+                let verb = if missing.len() == 1 { "isn't" } else { "aren't" };
+                w::para(ui, RichText::new(format!("{names} {verb} installed, so Asteria uses your system's sans-serif instead. They're free from Fontshare.")).color(t.muted));
+                if ui.link("fontshare.com").clicked() {
+                    super::open_url("https://www.fontshare.com/?q=switzer,melodrama");
+                }
+            }
             ui.horizontal(|ui| {
                 ui.add_space(t.body_size() * 9.0 + 8.0);
                 for c in [t.bg_darker, t.bg_dark, t.bg, t.bg_light, t.selection, t.muted, t.fg, t.accent, t.red, t.orange, t.yellow, t.green, t.cyan, t.blue, t.magenta] {

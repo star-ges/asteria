@@ -844,7 +844,7 @@ pub fn world_prompt_dialog(app: &mut App, p: &mut WorldPrompt, ui: &mut Ui) -> b
 #[allow(clippy::too_many_arguments)]
 fn installed(
     ui: &mut Ui,
-    t: &crate::theme::Theme,
+    t: &crate::design::Theme,
     s: &mut KindState,
     meta: &MetaStore,
     inst: &Instance,
@@ -998,7 +998,7 @@ pub const SEARCH_DELAY: Duration = Duration::from_millis(250);
 #[allow(clippy::too_many_arguments)]
 fn browse(
     ui: &mut Ui,
-    t: &crate::theme::Theme,
+    t: &crate::design::Theme,
     s: &mut KindState,
     meta: &MetaStore,
     remote: &RemoteIcons,
@@ -1106,7 +1106,7 @@ fn browse(
                                         }
                                     }
                                     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                                        let title = RichText::new(&h.title).font(crate::theme::bold(t.body_size())).color(t.fg_light);
+                                        let title = RichText::new(&h.title).font(crate::design::fonts::bold(t.body_size())).color(t.fg_light);
                                         ui.add(egui::Label::new(title).truncate());
                                     });
                                 });

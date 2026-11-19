@@ -16,7 +16,7 @@ use crate::instance::Instance;
 use crate::keymap::Action;
 use crate::launch::{self, LogLevel, LogLine};
 use crate::task::Promise;
-use crate::theme::Theme;
+use crate::design::Theme;
 
 /// A crashed game, glyph for crash reports and the crash notice.
 const CRASH: &str = "\u{f015a}";
@@ -638,7 +638,7 @@ fn panel(ui: &mut Ui, t: &Theme, a: &Analysis, st: &mut Panel, kb: Option<Nav>, 
                 }
             }
         };
-        let headline = RichText::new(a.headline()).font(crate::theme::bold(t.body_size() + 1.0)).color(t.fg_light);
+        let headline = RichText::new(a.headline()).font(crate::design::fonts::bold(t.body_size() + 1.0)).color(t.fg_light);
         let glyph = RichText::new(CRASH).color(tone).size(t.body_size() + 2.0);
         if ui.available_width() - w::buttons_width(ui, labels) >= 240.0 {
             ui.horizontal(|ui| {
@@ -689,7 +689,7 @@ fn panel(ui: &mut Ui, t: &Theme, a: &Analysis, st: &mut Panel, kb: Option<Nav>, 
                     ui.vertical(|ui| {
                         // The headline may already name it.
                         if c.title != headline {
-                            ui.label(RichText::new(&c.title).font(crate::theme::bold(t.body_size())).color(t.fg_light));
+                            ui.label(RichText::new(&c.title).font(crate::design::fonts::bold(t.body_size())).color(t.fg_light));
                         }
                         w::para(ui, RichText::new(&c.advice).color(t.fg));
                         for e in &c.evidence {
@@ -784,7 +784,7 @@ fn suspect_row(ui: &mut Ui, t: &Theme, tag_w: f32, s: &crate::crash::Suspect, on
         p.text(egui::pos2(x0, cy), egui::Align2::LEFT_CENTER, s.confidence.label(), egui::FontId::monospace(size - 1.0), confidence_color(t, s.confidence));
         let nx = x0 + tag_w;
         // The name gets up to 45% of the row (all that's left when it's narrow), cut with an ellipsis.
-        let mut job = egui::text::LayoutJob::single_section(s.label(), egui::TextFormat { font_id: crate::theme::bold(size), color: t.fg_light, ..Default::default() });
+        let mut job = egui::text::LayoutJob::single_section(s.label(), egui::TextFormat { font_id: crate::design::fonts::bold(size), color: t.fg_light, ..Default::default() });
         job.wrap = egui::text::TextWrapping { max_width: (rect.width() * 0.45).min(rect.right() - 8.0 - nx).max(0.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
         let name = p.layout_job(job);
         let name_w = name.size().x;

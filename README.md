@@ -244,7 +244,8 @@ Exports always contain real files, never links, so a shared instance exports lik
 | Light and dark | The XDG desktop portal's `org.freedesktop.appearance color-scheme`, watched live |
 | Window | Wayland app-id `asteria`, for window rules. Decorated: compositors that draw no title bar (Hyprland) give it none, others give it their usual one |
 | File pickers | The XDG desktop portal |
-| Icons in the UI | A Nerd Font, with one bundled as a fallback (Phosphor in a later release) |
+| Type | Switzer and Melodrama ([Fontshare](https://www.fontshare.com), free, not bundled: their licence forbids it) found through fontconfig, else your system's sans-serif and a note in Settings. JetBrains Mono for logs, the system's or a bundled copy |
+| Icons in the UI | Phosphor (bundled) in the redesigned parts; a Nerd Font, with one bundled as a fallback, in the rest until they move over |
 
 ## Coming from Omacraft
 
@@ -307,7 +308,13 @@ licenses cover trademarks: the names and logos belong to their projects, and Ast
 
 `assets/fonts/SymbolsNerdFontMono-Regular.ttf` is [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts)'
 Symbols Only font v3.5.1 (MIT, see `SymbolsNerdFont-LICENSE`). It's bundled as a fallback so icons
-render without a Nerd Font installed; a system Nerd Font takes precedence.
+render without a Nerd Font installed; a system Nerd Font takes precedence. It goes once every screen has moved
+to Phosphor.
+
+`assets/fonts/Phosphor.ttf` and `Phosphor-Bold.ttf` are [Phosphor Icons](https://phosphoricons.com) 2.1.2
+(`@phosphor-icons/web`, MIT, see `Phosphor-LICENSE`). `assets/fonts/JetBrainsMono-Regular.ttf` is
+[JetBrains Mono](https://www.jetbrains.com/lp/mono/) 2.304 (SIL Open Font License 1.1, see `JetBrainsMono-OFL.txt`),
+the fallback for logs when the system has no JetBrains Mono.
 
 ## License
 

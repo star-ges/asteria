@@ -20,7 +20,7 @@ use crate::keymap::Action;
 use crate::mod_config::{self as mc, Doc, Field, Format, Group, ModInfo, Scalar, Value};
 use crate::{fsutil, paths, shader_config};
 use crate::task::Promise;
-use crate::theme::{self, Theme};
+use crate::design::Theme;
 
 /// How often the list of files is read again while the tab is open.
 const RELIST: Duration = Duration::from_secs(5);
@@ -1128,7 +1128,7 @@ fn editor(ui: &mut Ui, t: &Theme, o: &mut Open, st: EditorState, running: bool, 
         if let Some(d) = dir {
             job.append(&format!("{d}/"), 0.0, TextFormat::simple(FontId::monospace(t.body_size()), t.muted));
         }
-        job.append(&o.name(), 0.0, TextFormat::simple(theme::bold(t.body_size()), t.fg_light));
+        job.append(&o.name(), 0.0, TextFormat::simple(crate::design::fonts::bold(t.body_size()), t.fg_light));
         ui.add(egui::Label::new(job).truncate());
     };
     // Buttons first, so a long name can't run under them. Read left to right: folder, restore defaults, fields/text,
@@ -1450,7 +1450,7 @@ fn section_header(ui: &mut Ui, t: &Theme, path: &[String], count: usize, open: b
             for s in parents {
                 job.append(&format!("{s}  ›  "), 0.0, TextFormat::simple(FontId::monospace(size), t.muted));
             }
-            job.append(last, 0.0, TextFormat::simple(theme::bold(size), if at { t.menu_selected_text } else { t.fg_light }));
+            job.append(last, 0.0, TextFormat::simple(crate::design::fonts::bold(size), if at { t.menu_selected_text } else { t.fg_light }));
         }
         let g = p.layout_job(job);
         let tw = g.size().x;
@@ -1509,7 +1509,7 @@ fn field_row(ui: &mut Ui, r: &Row, f: &Field, kb: Option<Nav>, focus_widget: boo
                 }
                 let color = if r.selected { t.fg_light } else { t.fg };
                 let name = f.label.as_deref().unwrap_or(&f.key);
-                ui.add(egui::Label::new(RichText::new(name).font(theme::bold(t.body_size())).color(color)).truncate()).on_hover_text(&f.key);
+                ui.add(egui::Label::new(RichText::new(name).font(crate::design::fonts::bold(t.body_size())).color(color)).truncate()).on_hover_text(&f.key);
             });
             if !f.doc.is_empty() {
                 w::para(ui, RichText::new(&f.doc).color(t.muted).size(t.body_size() - 1.0));

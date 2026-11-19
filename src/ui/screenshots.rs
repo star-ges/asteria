@@ -266,7 +266,7 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
 }
 
 /// Open, copy and delete for the selection, or the count when there's none.
-fn buttons(app: &mut App, ui: &mut Ui, t: &crate::theme::Theme, sel: Option<&PathBuf>, n: usize, key: &dyn Fn(Nav) -> bool) {
+fn buttons(app: &mut App, ui: &mut Ui, t: &crate::design::Theme, sel: Option<&PathBuf>, n: usize, key: &dyn Fn(Nav) -> bool) {
     if let Some(p) = sel {
         if w::primary_button(ui, t, "open").clicked() || key(Nav::Activate) {
             super::open_url(&p.display().to_string());

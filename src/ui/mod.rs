@@ -16,6 +16,7 @@ mod skin_view;
 mod version;
 mod version_picker;
 pub mod widgets;
+mod kit_gallery;
 mod worlds;
 
 use std::collections::HashMap;
@@ -35,7 +36,7 @@ use crate::keymap::{Action, Keymap};
 use nav::{Nav, Zone};
 use crate::mojang::{self, Manifest};
 use crate::task::{Promise, Task, TaskStatus};
-use crate::theme::{self, FontSet, Pending, Theme};
+use crate::design::{Look, Theme};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -151,10 +152,13 @@ impl Toast {
 
 pub struct App {
     pub rt: tokio::runtime::Handle,
+    /// The old screens' colours, kept in step with `look` (screens move to `look.tokens` and
+    /// the kit phase by phase).
     pub t: Theme,
-    watcher: Arc<Mutex<Pending>>,
-    /// Fonts in use, re-resolved only when the watcher sees fontconfig change.
-    pub fonts: FontSet,
+    /// Tokens, light/dark crossfade, fonts (re-resolved only when fontconfig changes).
+    pub look: Look,
+    /// `ASTERIA_DEBUG_VIEW=kit`: the kit gallery instead of the app.
+    kit_gallery: Option<crate::ui::kit_gallery::Gallery>,
     pub cfg: Config,
     pub accounts: Accounts,
     pub instances: Vec<Instance>,
@@ -210,14 +214,11 @@ pub struct App {
 
 impl App {
     pub fn new(egui_ctx: &egui::Context, rt: tokio::runtime::Handle) -> Self {
-        let t = Theme::starshell(theme::system_prefers_dark());
         egui_extras::install_image_loaders(egui_ctx);
         let ctx = egui_ctx.clone();
         smithay_clipboard::set_drop_notify(move || ctx.request_repaint());
-        let fonts = FontSet::resolve();
-        fonts.apply(egui_ctx);
-        t.apply(egui_ctx);
-        let watcher = theme::spawn_watcher(egui_ctx.clone());
+        let look = Look::new(egui_ctx);
+        let t = look.theme.clone();
         let instances = instance::load_all();
         let cfg = Config::load();
         let mut groups = crate::groups::Groups::load();
@@ -229,8 +230,8 @@ impl App {
             sizes: SizeCache::default(),
             rt,
             t,
-            watcher,
-            fonts,
+            look,
+            kit_gallery: (std::env::var("ASTERIA_DEBUG_VIEW").as_deref() == Ok("kit")).then(Default::default),
             keymap: Keymap::new(&cfg.keys),
             cfg,
             accounts: Accounts::load(),
@@ -682,7 +683,7 @@ impl App {
             .frame(egui::Frame::new().fill(t.bg).inner_margin(egui::Margin::symmetric(14, 0)))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.label(RichText::new("󰍳 Asteria").font(theme::bold(t.body_size())).color(t.accent));
+                    ui.label(RichText::new("󰍳 Asteria").font(crate::design::fonts::bold(t.body_size())).color(t.accent));
                     ui.add_space(18.0);
                     for (tab, key, label) in Tab::ALL {
                         let on = self.tab == tab;
@@ -1021,16 +1022,8 @@ impl App {
     }
 
     fn refresh_theme(&mut self, ctx: &egui::Context) {
-        let pending = std::mem::take(&mut *self.watcher.lock().unwrap());
-        if let Some(fonts) = pending.fonts {
-            fonts.apply(ctx);
-            self.fonts = fonts;
-        }
-        if let Some(theme) = pending.theme
-            && theme != self.t
-        {
-            theme.apply(ctx);
-            self.t = theme;
+        if self.look.frame(ctx) {
+            self.t = self.look.theme.clone();
         }
     }
 }
@@ -1210,6 +1203,9 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.refresh_theme(&ctx);
+        if let Some(gallery) = &mut self.kit_gallery {
+            return gallery.show(ui, &self.look);
+        }
         self.poll(&ctx);
         self.content.poll(&mut self.toasts);
         self.mod_sets.tick(&self.rt, &ctx);

@@ -378,7 +378,7 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
             ui.add_space(6.0);
             ui.vertical(|ui| {
                 let line = |ui: &mut Ui, text: RichText| ui.add(egui::Label::new(text).truncate());
-                line(ui, RichText::new(&inst.name).font(crate::theme::bold(t.body_size() * 1.6)).color(t.fg_light));
+                line(ui, RichText::new(&inst.name).font(crate::design::fonts::bold(t.body_size() * 1.6)).color(t.fg_light));
                 let mut sub = egui::text::LayoutJob::default();
                 let push = |job: &mut egui::text::LayoutJob, text: String, color| {
                     RichText::new(text).color(color).append_to(job, ui.style(), egui::FontSelection::Default, Align::Center)

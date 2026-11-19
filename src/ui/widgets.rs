@@ -4,7 +4,7 @@
 
 use egui::{Align2, Color32, CornerRadius, FontId, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 
-use crate::theme::{self, Theme};
+use crate::design::Theme;
 
 pub fn row_height(t: &Theme) -> f32 {
     t.body_size() + 16.0
@@ -185,7 +185,7 @@ pub fn rich_row_action(ui: &mut Ui, t: &Theme, selected: bool, lead: Lead, title
             (false, false) => t.fg_light,
         };
         let sub = if dim { Theme::alpha(t.muted, 0.6) } else { t.muted };
-        p.text(egui::pos2(x, rect.center().y - 2.0), Align2::LEFT_BOTTOM, title, theme::bold(size), color);
+        p.text(egui::pos2(x, rect.center().y - 2.0), Align2::LEFT_BOTTOM, title, crate::design::fonts::bold(size), color);
         p.text(egui::pos2(x, rect.center().y + 2.0), Align2::LEFT_TOP, subtitle, FontId::monospace(size - 1.0), sub);
     }
     let clicked = button.is_some_and(|(_, _, b)| b.clicked());
@@ -280,7 +280,7 @@ pub fn glyph_centered(p: &egui::Painter, center: egui::Pos2, glyph: &str, font: 
 
 /// The one filled button on a screen.
 pub fn primary_button(ui: &mut Ui, t: &Theme, label: &str) -> Response {
-    let text = RichText::new(label).color(t.bg).font(theme::bold(t.body_size()));
+    let text = RichText::new(label).color(t.bg).font(crate::design::fonts::bold(t.body_size()));
     let fill = t.accent;
     ui.add(egui::Button::new(text).fill(fill).stroke(Stroke::new(1.0, fill)).corner_radius(0))
         .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -397,7 +397,7 @@ pub fn scrim(t: &Theme) -> Color32 {
 }
 
 pub fn heading(ui: &mut Ui, t: &Theme, text: &str) {
-    ui.label(RichText::new(text).font(theme::bold(t.body_size() * 1.6)).color(t.fg_light));
+    ui.label(RichText::new(text).font(crate::design::fonts::bold(t.body_size() * 1.6)).color(t.fg_light));
 }
 
 pub fn size_label(n: u64) -> String {

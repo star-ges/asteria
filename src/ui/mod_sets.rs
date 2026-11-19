@@ -18,7 +18,7 @@ use crate::instance::Instance;
 use crate::keymap::Action;
 use crate::mod_sets::{self, Entry, ModSets};
 use crate::task::{Promise, Task};
-use crate::theme::Theme;
+use crate::design::Theme;
 
 const SETS: &str = "\u{f0328}";
 const SEARCH: &str = "\u{f0349}";
@@ -354,7 +354,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, inst: &Instance, found: Option<(&[Entry],
                 ui.label(RichText::new(SETS).color(t.muted));
                 match sets.active() {
                     Some(set) => {
-                        let name = RichText::new(&set.name).font(crate::theme::bold(t.body_size())).color(t.fg_light);
+                        let name = RichText::new(&set.name).font(crate::design::fonts::bold(t.body_size())).color(t.fg_light);
                         open |= ui.add(egui::Label::new(name).sense(egui::Sense::click()).truncate()).on_hover_text("mod sets").on_hover_cursor(egui::CursorIcon::PointingHand).clicked();
                         if modified {
                             ui.label(RichText::new("·").color(t.muted));
@@ -1226,7 +1226,7 @@ pub fn banner(app: &mut App, ui: &mut Ui, inst: &Instance) {
                     let on = b.step.as_ref().map_or(0, |s| s.on.len());
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(SEARCH).color(color));
-                        ui.label(RichText::new("finding the breaking mod").font(crate::theme::bold(t.body_size())).color(t.fg_light));
+                        ui.label(RichText::new("finding the breaking mod").font(crate::design::fonts::bold(t.body_size())).color(t.fg_light));
                         let confirm = b.step.as_ref().is_some_and(|s| s.kind == StepKind::Confirm);
                         let what = if confirm { "checking the last suspect".to_string() } else { format!("{} suspects left", b.suspects.len()) };
                         ui.add(egui::Label::new(RichText::new(format!("step {n} of ~{of}  ·  {what}  ·  {on} of {} mods on", b.original.values().filter(|o| **o).count())).color(t.muted)).truncate());
@@ -1253,7 +1253,7 @@ pub fn banner(app: &mut App, ui: &mut Ui, inst: &Instance) {
                             many => (FOUND, format!("breaking mod is one of: {}", many.iter().map(|c| c.label()).collect::<Vec<_>>().join(", "))),
                         };
                         ui.label(RichText::new(glyph).color(color));
-                        ui.add(egui::Label::new(RichText::new(title).font(crate::theme::bold(t.body_size())).color(t.fg_light)).truncate());
+                        ui.add(egui::Label::new(RichText::new(title).font(crate::design::fonts::bold(t.body_size())).color(t.fg_light)).truncate());
                     });
                     let mut note = done.note.clone();
                     if let [c] = done.culprits.as_slice() {

@@ -29,7 +29,7 @@ mod skins;
 mod store;
 mod world_sets;
 mod task;
-mod theme;
+mod design;
 mod vanilla_options;
 mod ui;
 
@@ -116,7 +116,7 @@ impl Root {
             Err(e) => self.waiting = Some(format!("Couldn't move Omacraft's files over: {e:#}")),
         }
         if self.app.is_none() {
-            theme::Theme::starshell(theme::system_prefers_dark()).apply(ctx);
+            design::Theme::starshell(design::system::preference().dark).apply(ctx);
         }
         self.next_try = std::time::Instant::now() + std::time::Duration::from_secs(2);
     }
@@ -135,7 +135,7 @@ impl eframe::App for Root {
             }
         }
         ctx.request_repaint_after(std::time::Duration::from_secs(2));
-        let t = theme::Theme::starshell(theme::system_prefers_dark());
+        let t = design::Theme::starshell(design::system::preference().dark);
         egui::CentralPanel::default().show(ui, |ui| {
             ui.add_space(ui.available_height() * 0.3);
             ui.vertical_centered(|ui| {

@@ -7,7 +7,7 @@
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Sense, Ui, vec2};
 use image::RgbaImage;
 
-use crate::theme::Theme;
+use crate::design::Theme;
 
 type V3 = [f32; 3];
 

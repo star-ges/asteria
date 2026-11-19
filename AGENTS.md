@@ -41,7 +41,12 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 |---|---|
 | `main.rs`, `cli.rs` | tokio runtime; the CLI if there are args, otherwise eframe (decorated: Hyprland draws no title bar, other desktops do) |
 | `paths.rs`, `config.rs` | `~/.local/share/asteria`, `~/.config/asteria/config.toml` (incl. `[keys]`, `collapsed_groups`, `msa_client_id`) |
-| `theme.rs` | StarShell's light and dark palettes plus the clarity hues; light/dark from the XDG portal's `color-scheme` (D-Bus, watched); fonts via fontconfig |
+| `design/tokens.rs` | Every colour, size, spacing and duration as a named token (StarShell's values): `LIGHT`/`DARK` palettes plus the clarity hues, `Tokens` (the crossfaded palette in use) |
+| `design/system.rs` | `Look`: follows the XDG portal (`color-scheme`, GNOME's `enable-animations` for reduced motion; D-Bus, watched; winit reports no theme on Wayland) and fontconfig; crossfades light ⇄ dark over 600ms and keeps the old screens' `Theme` in step |
+| `design/fonts.rs`, `design/glyphs.rs`, `design/motion.rs` | Switzer/Melodrama via fontconfig (else `sans-serif`, `FontSet::missing`), bundled Phosphor and JetBrains Mono, the old screens' monospace + Nerd Font; Phosphor names → codepoints; ease-out curves and eased animations that repaint only while moving |
+| `design/kit/*` | The new widget kit (Phase 2): text and icons, rules and section labels, buttons, switch and checkbox, fields, slider and meter, setting groups and rows, quiet table, tiles, bars, sheet/strip/notice and the small blocks (spec strip, bracketed paragraph, empty and loading), `HoverList` with its stars |
+| `design/legacy.rs` | The old screens' `Theme`, made from the tokens' palette; goes with the last old screen |
+| `ui/kit_gallery.rs` | The hidden kit gallery (`ASTERIA_DEBUG_VIEW=kit`): every kit part and the plan's new patterns, light, dark or both |
 | `migrate.rs` | First start: moves Asteria's data and config dirs to Asteria's and links the old names back |
 | `mojang.rs`, `loaders.rs`, `java.rs`, `launch.rs` | Version JSON + rules, loader profiles (Fabric/Quilt meta; Forge/NeoForge from Prism's meta: launchwrapper `+tweakers` for 1.6–1.12, ForgeWrapper + `mavenFiles` for 1.13+), Mojang Java runtimes, prepare + spawn (incl. QuickPlay) |
 | `auth.rs` | MSA device code → XBL → XSTS → Minecraft; offline accounts |
@@ -66,15 +71,20 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 | `ui/{version,content,worlds,servers,screenshots,logs}.rs` | Per-instance tabs (content also has mod updates and the rollback dialogs; worlds has the backups pane; log history has the crash analysis panel) |
 | `ui/{new_instance,export,version_picker,icon_picker,group_manager,settings,accounts}.rs` | Dialogs and pages |
 | `ui/skin_view.rs` | 3D player model: one coloured quad per texel, rotated, projected and painted back to front as an `egui::Mesh` |
-| `ui/widgets.rs` | The widget kit, listed under Patterns below |
+| `ui/widgets.rs` | The old widget kit, still used by every screen until it's redesigned (Phases 3–8) |
 
 ## Patterns to follow
 
 - **StarShell look** (the `starshell-design` skill is the authority; the plan maps it onto each screen):
   type carries the design, structure is drawn with 1px hairlines, radius 0 everywhere, no shadows,
   gradients or blur, one accent for hover/focus/active/selected only.
-  - Colours come only from `Theme` tokens (`t.accent`, `t.fg_a(alpha)`, `t.named("blue")`…).
-  - The single filled button on a screen is `w::primary_button`.
+  - Colours come only from tokens: in redesigned code `Tokens` (`t.accent`, `t.wash(a)`, `t.error()`,
+    `t.named("blue")`…) and sizes/durations from `design::tokens`; in old screens `Theme` (`t.fg_a(alpha)`…).
+  - Redesigned screens draw with `design::kit` (see the gallery), not `ui/widgets.rs`. Kit parts take `t: &Tokens`,
+    take a `hot` flag for keyboard-current (same response as hover), never change a value just by being drawn, and
+    register AccessKit info.
+  - The single filled button on a screen is `kit::Button::filled()` (old screens: `w::primary_button`).
+  - Galleys painted in a state colour are laid out in `Color32::PLACEHOLDER`: a galley's own colour wins over the paint colour.
   - Light and dark exist together with the same token names; never hard-code a colour.
 - **Text clips by default:** the global wrap mode is `Extend`.
   - Paragraphs that should wrap use `w::para`, which also avoids the justified spacing inside `ui.columns`.
@@ -93,12 +103,13 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 - **Background work:** `Promise::spawn(&app.rt, ctx, fut)` and poll `take()` each frame.
   - Long jobs carry a `Task` so the status bar shows progress.
 - **Destructive actions:** go through `Modal::Confirm` with a `ConfirmAction`.
-- **Icons in UI text:** use Nerd Font glyphs.
+- **Icons in UI text:** redesigned code uses Phosphor by name (`design::glyphs`, bundled, `fonts::icons`); old
+  screens use Nerd Font glyphs until they move over.
   - A symbols-only Nerd Font is bundled as a fallback (`assets/fonts`), so they render anywhere.
   - Avoid Unicode symbols that plain fonts lack: ⏎ ▶ ▸ ▾ were swapped out for this reason.
   - Write private-use glyphs as `\u{f44b}` escapes; they can get lost when pasted through tools.
 - **Contrast:** every text colour and clarity hue is at least 4.5:1 on its own background
-  (`theme::tests::every_text_colour_is_at_least_4_5_to_1`). Check new colours on the real background.
+  (`design::tokens::tests::every_text_colour_is_at_least_4_5_to_1`). Check new colours on the real background.
 
 ## Approved exceptions to the StarShell language
 
@@ -106,7 +117,9 @@ Approved by the user on 2026-11-19. They are deliberate: don't "fix" them, and d
 
 1. **Clarity hues.** A small terracotta palette (clay, sienna, ochre, olive, teal, slate, plum) for
    readability only: groups, errors (clay), warnings (ochre), statuses (olive). Text colour and small
-   marks only, never fills, washes, borders or hover/focus/selection (those stay the accent).
+   marks only, never fills, washes, borders or hover/focus/selection (those stay the accent). One fill
+   is allowed: a destructive action's confirming button is filled with clay (`kit::Button::danger()`,
+   approved 2026-11-19).
 2. **JetBrains Mono** for raw text only: log lines, crash-report quotes, the config text mode.
 3. **A gradient on the desktop icon** (`packaging/asteria.svg`) only. Inside the app the mark is flat.
 
@@ -269,7 +282,8 @@ test (and a rule here) with any fix that sets a new one.
   `profiles_set_their_options_and_are_recognised`, `using_a_pack_changes_only_its_lines`,
   `profiles_include_options_no_screen_shows`, `boolean_constants_are_options_without_an_ifdef`).
   Widgets must not change a value just by drawing it: sliders use `SliderClamping::Edits`, `DragValue` uses
-  `clamp_existing_to_range(false)`, and nothing rounds. Tests: `mod_config::tests` (incl.
+  `clamp_existing_to_range(false)`, the kit's `Slider` writes only on a press, drag, wheel or arrow key, and nothing
+  rounds. Tests: `design::kit::slider::tests::drawing_never_changes_the_value`, `mod_config::tests` (incl.
   `toml_edits_round_trip_byte_for_byte`, `json5_edits_round_trip_byte_for_byte`, `only_files_inside_config_open`,
   `a_file_changed_on_disk_is_not_overwritten`, `untouched_list_items_keep_their_exact_text`,
   `json5_strings_decode_every_escape`, `literal_strings_take_only_what_they_can_hold`), `ui::config::tests`.
@@ -363,6 +377,16 @@ test (and a rule here) with any fix that sets a new one.
   - `ASTERIA_DEBUG_VIEW=<instance-id>:<tab>` sets the starting view.
   - `ASTERIA_DEBUG_KEYS=l,j,shift+j,space` injects one key every few frames as `egui::Event::Key`.
   - Never inject input through the compositor (e.g. Hyprland's send-key dispatchers): it types into whatever window has focus.
+- **Kit gallery:** `ASTERIA_DEBUG_VIEW=kit` (with `ASTERIA_KIT_SECTION=<n>`, `ASTERIA_KIT_PALETTE=light|dark|both`,
+  `ASTERIA_KIT_KEY_ROW=<n>`). Look at it at full size: Asteria is full-width first.
+- **Keep test windows off the user's screen:** on Hyprland, make a headless output far to the side and launch on its
+  workspace: `hyprctl output create headless asteria-test`, `hyprctl eval "hl.monitor({ output = 'asteria-test', mode =
+  '3840x2560@60', position = '20000x0', scale = 1.6 })"`, then `hyprctl dispatch "hl.dsp.exec_cmd('<cmd>', { workspace
+  = '<its workspace> silent' })"`; `grim -o asteria-test` captures it. Remove it afterwards (`hyprctl output remove
+  asteria-test`; the shell's bar appears on it meanwhile). A special workspace doesn't work: hidden windows get no
+  frame callbacks, so they never draw. Wait for one test window to exit before starting the next, or they tile side by side.
+- **Fonts with a scratch `XDG_DATA_HOME`:** fontconfig looks for user fonts in `$XDG_DATA_HOME/fonts`, so link
+  `~/.local/share/fonts` into the scratch dir, or the run is (unintentionally) a missing-fonts run.
 - **Never let a game window open on the desktop:** LWJGL uses Wayland, so unset
   `WAYLAND_DISPLAY` as well as `DISPLAY` when test-launching Minecraft.
 - **Plain-system simulation:** `HOME=<scratch>` plus a `FONTCONFIG_FILE` that only lists

@@ -277,7 +277,7 @@ fn account_list(app: &mut App, ui: &mut Ui, kb: Option<Nav>) {
                 ui.label(RichText::new("enter this code at").color(t.muted));
                 ui.label(RichText::new(&code.verification_uri).color(t.accent));
                 ui.add_space(6.0);
-                ui.label(RichText::new(&code.user_code).font(crate::theme::bold(t.body_size() * 2.2)).color(t.fg_light));
+                ui.label(RichText::new(&code.user_code).font(crate::design::fonts::bold(t.body_size() * 2.2)).color(t.fg_light));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if w::primary_button(ui, &t, "copy code & open browser").clicked() {
