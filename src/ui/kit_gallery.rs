@@ -209,7 +209,7 @@ impl Gallery {
         Self::pad(ui, |ui| {
             kit::text::display_large(ui, t, "Asteria", tk::SIZE_DISPLAY_LARGE);
             kit::display(ui, t, "Vanilla+ 26.3", tk::SIZE_DISPLAY);
-            kit::heading(ui, t, "Find the breaking mod");
+            kit::heading(ui, t, "Find breaking mod");
             kit::heading_small(ui, t, "Sodium 0.6.1");
             kit::body(ui, t, "Body text is Switzer SemiBold 14. Paragraphs wrap to the width they're given and are never justified, so the spacing between words stays even.");
             kit::body_muted(ui, t, "Muted body text for hints and secondary lines.");
@@ -571,7 +571,7 @@ impl Gallery {
         });
         if self.strip_open != 0 {
             let id = egui::Id::new((salt, "strip", self.strip_open));
-            if kit::strip(ui, t, id, "Delete New World? A snapshot is kept in backups.", "delete").is_some() {
+            if kit::strip(ui, t, id, "delete world", "Delete New World? A snapshot is kept in backups.", "delete").is_some() {
                 self.strip_open = 0;
             }
         }
@@ -662,16 +662,16 @@ impl Gallery {
     }
 
     fn flows(&mut self, ui: &mut Ui, t: &Tokens, _salt: &str) {
-        self.label(ui, t, 1, "Find the breaking mod", "a sheet");
+        self.label(ui, t, 1, "Find breaking mod", "a sheet");
         Self::pad(ui, |ui| {
-            kit::heading(ui, t, "Find the breaking mod");
+            kit::heading(ui, t, "Find breaking mod");
             kit::body(ui, t, "Asteria turns half of the suspects off, you play until the problem shows or doesn't, and it halves again. Seven steps at most for 72 mods.");
             kit::bracketed(ui, t, "before you start", |ui| {
                 kit::body(ui, t, "Worlds you open with mods missing can lose what those mods added. Asteria snapshots each world first, but play a test world if you can.");
             });
         });
         kit::setting_group(ui, t, 2, "Step 3 of ~7", "9 suspects on", |ui| {
-            for (i, (title, desc)) in [("It happened", "The suspects are among the 9 mods that were on."), ("It didn't", "The suspects are among the 8 mods that were off.")].iter().enumerate() {
+            for (i, (title, desc)) in [("Problem occurred", "The suspects are among the 9 mods that were on."), ("Problem did not occur", "The suspects are among the 8 mods that were off.")].iter().enumerate() {
                 if kit::choice_row(ui, t, title, desc, self.answer == Some(i), self.key_row == Some(i)).clicked() {
                     self.answer = Some(i);
                 }

@@ -167,7 +167,7 @@ pub fn show(app: &mut App, s: &mut NewInstance, ui: &mut Ui) -> Option<Outcome> 
     ui.set_height((screen.height() - 120.0).clamp(300.0, 560.0));
 
     ui.horizontal(|ui| {
-        w::heading(ui, &t, "new instance");
+        w::heading(ui, &t, "New instance");
         ui.add_space(16.0);
         if w::segmented(ui, &t, &mut s.mode, &[(Mode::Create, "new"), (Mode::Import, "import")]) && s.mode == Mode::Import {
             s.focus_source = true;

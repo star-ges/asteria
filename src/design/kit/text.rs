@@ -156,9 +156,11 @@ pub fn icon_label(painter: &Painter, center: Pos2, glyph: &str, size: f32, color
     paint_glyph(painter, center, glyph, fonts::icons_bold(size), color)
 }
 
-/// A bottom-bar key hint: the key in `text_strong`, the label muted, no boxes.
+/// A bottom-bar key hint: the key in `text_strong` (in its own case), the label muted, no boxes.
 pub fn key_hint(ui: &mut Ui, t: &Tokens, key: &str, label_text: &str) -> Response {
-    let mut job = caption_job(key, t.text_strong);
+    // The key keeps its own case: `e` and `E` are different keys.
+    let mut job = LayoutJob::default();
+    job.append(key, 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), color: t.text_strong, extra_letter_spacing: tk::CAPTION_TRACKING, ..Default::default() });
     job.append("  ", 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), ..Default::default() });
     job.append(&caps(label_text), 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), color: t.text_muted, extra_letter_spacing: tk::CAPTION_TRACKING, ..Default::default() });
     label(ui, job)

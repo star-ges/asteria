@@ -625,7 +625,7 @@ fn panel(ui: &mut Ui, t: &Theme, a: &Analysis, st: &mut Panel, kb: Option<Nav>, 
         ui.set_width(ui.available_width());
         // Headline, with the panel's actions laid out first so it never runs under them. When they'd leave the
         // headline too little room, it gets a line of its own (wrapped) and the actions go underneath.
-        let labels: &[&str] = if a.crashed { &["hide", "copy summary", "find the breaking mod"] } else { &["hide", "copy summary"] };
+        let labels: &[&str] = if a.crashed { &["hide", "copy summary", "find breaking mod"] } else { &["hide", "copy summary"] };
         // Laid out right to left beside the headline, left to right under it: either way "hide" ends up last.
         let actions = |ui: &mut Ui, st: &mut Panel, out: &mut PanelOut, order: &mut dyn Iterator<Item = &&str>| {
             for l in order {

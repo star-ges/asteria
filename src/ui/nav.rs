@@ -5,11 +5,12 @@
 //! pane takes it with `App::nav_for(zone)` while drawing, since that's where
 //! its items live.
 
-use egui::{RichText, Ui};
+use egui::Ui;
 
 use super::instances::InstTab;
+use crate::design::kit::{self, SectionLabel};
+use crate::design::tokens as tk;
 use crate::keymap::{self, Action, Keymap};
-use super::widgets as w;
 use super::{App, Tab};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,8 +152,10 @@ pub fn hints(app: &App) -> Vec<(String, &'static str)> {
     if app.capture.is_some() {
         return vec![("any key".into(), "bind it"), ("esc".into(), "cancel")];
     }
-    if app.modal.is_some() {
-        return vec![(l(Help), "keys"), ("esc".into(), "close"), ("󰌑".into(), "confirm"), (p(Down, Up), "move")];
+    match &app.modal {
+        Some(super::Modal::Confirm(_)) => return vec![(l(Help), "keys"), (l(Activate), "confirm"), ("esc".into(), "cancel")],
+        Some(_) => return vec![(l(Help), "keys"), ("esc".into(), "close"), (l(Activate), "confirm"), (p(Down, Up), "move")],
+        None => {}
     }
     // `?` leads, so the way to every other key is always in the same place.
     let mut h: Vec<(String, &str)> = vec![(l(Help), "keys")];
@@ -243,17 +246,10 @@ pub fn hints(app: &App) -> Vec<(String, &'static str)> {
     h
 }
 
-/// The full reference, shown with `?`.
+/// The full reference, shown with `?` in a sheet: each section numbered, a key column and
+/// what it does. Returns true when it should close.
 pub fn help(app: &App, ui: &mut Ui) -> bool {
-    let t = &app.t;
-    let screen = ui.ctx().content_rect();
-    ui.set_width((screen.width() - 120.0).clamp(420.0, 860.0));
-    ui.horizontal(|ui| {
-        w::heading(ui, t, "keys");
-        ui.add_space(12.0);
-        ui.label(RichText::new("change them in settings → keys").color(t.muted));
-    });
-    ui.add_space(8.0);
+    let t = app.look.tokens.clone();
     let mut sections: Vec<(&str, Vec<(String, &str)>)> = Vec::new();
     for i in keymap::ACTIONS {
         let keys = app.keymap.chords(i.action).iter().map(|c| c.label()).collect::<Vec<_>>().join(" / ");
@@ -262,28 +258,48 @@ pub fn help(app: &App, ui: &mut Ui) -> bool {
             None => sections.push((i.section, vec![(keys, i.what)])),
         }
     }
-    sections.push(("dialogs", vec![("tab".into(), "next field"), ("↑ / ↓".into(), "pick a version while typing a filter"), ("󰌑".into(), "confirm"), ("esc".into(), "close")]));
-    let half = sections.iter().map(|(_, v)| v.len()).sum::<usize>() / 2;
-    egui::ScrollArea::vertical().max_height(screen.height() - 220.0).show(ui, |ui| {
+    sections.push(("dialogs", vec![("tab".into(), "next field"), ("up / down".into(), "pick a version while typing a filter"), (app.keymap.label(Action::Activate), "confirm"), ("esc".into(), "close")]));
+    let mut close = false;
+    ui.horizontal(|ui| {
+        kit::heading(ui, &t, "Keys");
+        ui.add_space(tk::GAP);
+        kit::caption(ui, &t, "make changes in settings");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            close = kit::Button::new("close").show(ui, &t).clicked();
+        });
+    });
+    ui.add_space(tk::GAP);
+    // Two columns, split near the middle by line count.
+    let half = sections.iter().map(|(_, v)| v.len() + 2).sum::<usize>() / 2;
+    let key_w = 120.0;
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.columns(2, |cols| {
             let mut count = 0;
-            for (title, keys) in &sections {
+            for (n, (title, keys)) in sections.iter().enumerate() {
                 let ui = &mut cols[if count < half { 0 } else { 1 }];
-                count += keys.len();
-                w::section(ui, t, title);
+                count += keys.len() + 2;
+                ui.spacing_mut().item_spacing.y = 0.0;
+                SectionLabel::new(n + 1, title).show(ui, &t);
                 for (k, what) in keys {
-                    ui.horizontal(|ui| {
-                        let (rect, _) = ui.allocate_exact_size(egui::vec2(t.body_size() * 9.0, t.body_size() + 6.0), egui::Sense::hover());
-                        ui.painter().with_clip_rect(rect).text(rect.left_center(), egui::Align2::LEFT_CENTER, k, egui::FontId::monospace(t.body_size()), t.accent);
-                        ui.add(egui::Label::new(RichText::new(*what).color(t.fg)).truncate());
-                    });
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), tk::TABLE_ROW_HEIGHT), egui::Sense::hover());
+                    let p = ui.painter().with_clip_rect(rect);
+                    // On the section label's gutter.
+                    let rect = rect.with_min_x(rect.left() + tk::GUTTER);
+                    // Keys keep their own case (`e` and `E` differ), so not a caption.
+                    let kg = p.layout_no_wrap(k.clone(), crate::design::fonts::text(tk::SIZE_BODY), t.text_strong);
+                    p.galley(egui::pos2(rect.left(), rect.center().y - kg.size().y / 2.0), kg, t.text_strong);
+                    let mut job = egui::text::LayoutJob::simple_singleline(what.to_string(), crate::design::fonts::text(tk::SIZE_BODY), t.text_muted);
+                    job.wrap.max_width = rect.width() - key_w;
+                    job.wrap.max_rows = 1;
+                    let g = p.layout_job(job);
+                    p.galley(egui::pos2(rect.left() + key_w, rect.center().y - g.size().y / 2.0), g, t.text_muted);
+                    kit::hline(ui.painter(), rect.x_range(), rect.bottom() - 0.5, t.line);
                 }
-                ui.add_space(8.0);
+                ui.add_space(tk::GAP);
             }
         });
     });
-    ui.add_space(8.0);
-    w::button(ui, "close").clicked()
+    close
 }
 
 #[cfg(test)]

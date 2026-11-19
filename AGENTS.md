@@ -61,9 +61,9 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 | `world_sets.rs`, `backups.rs` | World sets' rules: one version + loader per set, `asteria.toml` play records in each world, the pre-launch mod check; reflink snapshots of worlds (`backups/worlds/`) and of an instance's `mods` + `config` (`backups/instances/`), restore, rollback, pruning |
 | `store.rs` | Content store: Modrinth installs and `.mrpack` files go through `cache/content/<sha1>` and are reflinked into instances; `reclaim` merges duplicates (`FIDEDUPERANGE`) and prunes the store |
 | `icons.rs`, `fsutil.rs`, `net.rs`, `task.rs` | Instance icons, reflink copy, HTTP + downloads, background `Task`/`Promise` |
-| `ui/mod.rs` | `App`, top/status bars, modals, key routing, launching, imports |
+| `ui/mod.rs` | `App`, the bars (kit cells; the bottom one in the foreground so notices stay clickable over a sheet), notices, dialogs as sheets and the confirm strip, key routing, launching, imports |
 | `ui/nav.rs` | Focus zones, `Nav`, hints bar and `?` help, both built from the keymap |
-| `ui/instances.rs` | Sidebar (groups, drag-and-drop, context menu) + instance header + tab dispatch |
+| `ui/instances.rs` | The instance list (groups, drag-and-drop, context menu) beside the selected instance's page: the header (name, play/edit/folder, spec strip) + tab dispatch |
 | `vanilla_options.rs`, `shader_config.rs` | The configs tab's other parts: `options.txt` as named, sectioned fields (`KNOWN` table; unknown keys under "other"); shader pack options read from the pack (`#define`s, `const`s with `// [values]`, `shaders.properties` screens and sliders, `lang/en_us.lang` names), saved to `shaderpacks/<pack>.txt` |
 | `mod_config.rs`, `ui/config.rs` | Configs tab (minecraft · mods · shaders): `config/` files grouped by mod (folding, kept in `<data>/config-view.toml`); TOML (`toml_edit` spans) and JSON/JSON5 (own parser) as fields with comment hints (range, allowed values, default); edits splice only the value's bytes; conflict-checked saves |
 | `mod_sets.rs`, `bisect.rs`, `ui/mod_sets.rs` | Mod sets (`mod_sets.toml`: named on/off arrangements keyed by jar mod id, else versionless file name); the search for the breaking mod (`bisect.toml`: dependency-closed halving, a confirming step, exact restore); the mods tab's set line, sets dialog, search dialogs and banner |
@@ -96,8 +96,15 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 - **Keyboard:** the screen has zones (`Zone::List/Main/Side`).
   - `App::keys` turns key presses into a `Nav` through the `Keymap`.
   - Each pane takes it with `app.nav_for(zone)` and acts on it like its buttons do (`|| key(Nav::X)`), so mouse and keyboard can't drift apart.
+  - There is no separate index of instances: the list always sits beside the selected instance's page
+    (decided 2026-11-19; a full-width index only added a step).
   - Dialogs use `app.modal_nav()`. While one is open `nav_for` returns nothing, so the panes drawn under it
     can't take its keys.
+  - Dialogs are sheets (`App::sheet`): an `Area` over the content area made the modal layer, so only it takes
+    the pointer and focus; Esc closes it as egui's modals did. A dialog gives its own heading (sentence case);
+    the sheet gives the caption. `Modal::Confirm` is a strip at the content area's foot (Enter, Esc).
+  - Notices (`app.toast`) take over the bottom bar's hint cell: the newest shows, info for 5 s, errors until
+    dismissed (click, or Esc before any other key); a long one has `MORE`, which opens it in a sheet.
   - New actions go in `keymap.rs` `actions!` (with a scope), plus `nav::hints`. The `?` hint always comes first.
   - Never hard-code a key.
 - **Background work:** `Promise::spawn(&app.rt, ctx, fut)` and poll `take()` each frame.

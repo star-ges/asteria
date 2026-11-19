@@ -2208,7 +2208,7 @@ pub fn leave_dialog(app: &mut App, s: &Leave, ui: &mut Ui) -> bool {
     let Some(o) = &app.config.open else { return true };
     let name = o.rel.display().to_string();
     ui.set_width(440.0);
-    w::heading(ui, &t, "unsaved changes");
+    w::heading(ui, &t, "Unsaved changes");
     ui.add_space(8.0);
     w::para(ui, RichText::new(format!("{name} has changes that aren't saved yet.")).color(t.fg));
     ui.add_space(14.0);

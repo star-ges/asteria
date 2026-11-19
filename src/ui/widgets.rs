@@ -361,43 +361,10 @@ pub fn key_hint(ui: &mut Ui, t: &Theme, key: &str, label: &str) {
     ui.add_space(8.0);
 }
 
-/// Thin progress bar, accent on a faint track.
-pub fn progress(ui: &mut Ui, t: &Theme, frac: Option<f32>, width: f32) {
-    let (rect, _) = ui.allocate_exact_size(vec2(width, 4.0), Sense::hover());
-    let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::ZERO, t.fg_a(0.10));
-    match frac {
-        Some(f) => {
-            let mut r = rect;
-            r.set_width(rect.width() * f.clamp(0.0, 1.0));
-            p.rect_filled(r, CornerRadius::ZERO, t.accent);
-        }
-        None => {
-            // Indeterminate: a sliding block.
-            let time = ui.input(|i| i.time) as f32;
-            let w = rect.width() * 0.25;
-            let x = rect.left() + ((time * 0.8).fract() * (rect.width() + w)) - w;
-            let r = Rect::from_min_size(egui::pos2(x.max(rect.left()), rect.top()), vec2(w.min(rect.right() - x.max(rect.left())), rect.height()));
-            p.rect_filled(r, CornerRadius::ZERO, t.accent);
-            ui.ctx().request_repaint();
-        }
-    }
-}
-
-pub fn modal_frame(t: &Theme) -> egui::Frame {
-    egui::Frame::new()
-        .fill(t.bg)
-        .stroke(Stroke::new(2.0, t.border_active))
-        .inner_margin(20)
-        .corner_radius(0)
-}
-
-pub fn scrim(t: &Theme) -> Color32 {
-    Theme::alpha(t.bg, t.scrim_alpha)
-}
-
+/// Page and sheet titles, in sentence case: the kit's heading face (Switzer ExtraBold 28).
 pub fn heading(ui: &mut Ui, t: &Theme, text: &str) {
-    ui.label(RichText::new(text).font(crate::design::fonts::bold(t.body_size() * 1.6)).color(t.fg_light));
+    let size = crate::design::tokens::SIZE_HEADING;
+    ui.add(egui::Label::new(RichText::new(text).font(crate::design::fonts::heading(size)).color(t.fg_light)).selectable(false).truncate());
 }
 
 pub fn size_label(n: u64) -> String {

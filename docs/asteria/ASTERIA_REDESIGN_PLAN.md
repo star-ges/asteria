@@ -138,6 +138,8 @@ One `Tokens` struct replaces `Theme` (details in E.1). Values are StarShell's, s
 
 ### C.3 Navigation philosophy
 
+*Superseded 2026-11-19 (H.1, Addenda): the Index was dropped after Phase 3; the list stays beside every instance page.*
+
 **Two levels instead of a permanent master and detail: an Index you choose from, and Instance pages you work in.** Choosing is expressive, working is quiet.
 
 ```
@@ -214,6 +216,8 @@ Each screen lists its **adaptation** (the existing layout in StarShell's languag
 - **Notices replace toasts:** a notice **takes over the bottom bar's hint cell** for 5s (info) and fades back. Errors stay until dismissed (`Esc` or a click) and are marked by a clay square plus a clay `ERROR` caption (C.6). A long error shows its first line with `MORE`, which opens it in a sheet. **[S2]** behavioural (where messages appear and how long errors last).
 
 ### D.2 Instance list → Index and rail
+
+*Superseded 2026-11-19 (H.1, Addenda): the Index was dropped after Phase 3; the list stays beside every instance page.*
 
 **Today:** a 200–300px sidebar: filter plus `+`, group headers (`▾ name ─── n`, tinted by group colour), rows boxed and tinted by group colour, focus marked with a 3px accent bar, drag and drop between groups, context menu.
 
@@ -573,7 +577,9 @@ Each phase ends with `cargo build` warning-free, `cargo test` green (plus `--ign
 - **Validation:** the existing `ui::*` tests; a manual keyboard pass through every dialog with `ASTERIA_DEBUG_KEYS`; a check that panes under a sheet take no keys.
 - **Visible outcome:** the new frame of the app, StarShell's bars, dialogs as sheets.
 
-### Phase 4: Index, rail and instance page
+### Phase 4: Instance list and instance page
+
+*Revised 2026-11-19: no Index (see Addenda); the list beside the page gets the hover-list treatment.*
 
 - **Objectives:** D.2 Index hover list, compact rail, filter takeover, groups as numbered sections, drag and drop; D.3 header, spec strip, section/sub-tab navigation; D.4 Overview.
 - **Files:** `ui/instances.rs`, `ui/version.rs`, notes in `instances.rs`, `ui/group_manager.rs`, `keymap.rs` (only if H.1 needs new actions).
@@ -632,7 +638,7 @@ Each phase ends with `cargo build` warning-free, `cargo test` green (plus `--ign
 
 | # | Question | Decision |
 |---|---|---|
-| H.1 | Navigation | **Index plus instance pages, 6 sections** (C.3, D.2–D.3). |
+| H.1 | Navigation | **Instance pages with the list beside them, 6 sections** (D.3). *Revised 2026-11-19 after Phase 3:* the full-width Index was built and dropped. Its job was redundant with the list beside every page, and it added a step each time the app opened. The list beside the page is the one instance list (see the Phase 3 addendum). |
 | H.2 | Group colours | **Keep colour, as terracotta clarity hues** used for readability only: groups, errors, warnings, statuses. Never fills or state (C.6). *Changed from the proposal.* |
 | H.3 | Data migration | **Move plus a compatibility symlink** (F.3). |
 | H.4 | App icon | **Dark background square, rust star with a vertical gradient lightening towards the top** (shiny). Desktop application icon only (C.1). *Changed from the proposal.* |
@@ -671,9 +677,13 @@ Changes decided after a phase was built, to be done with the next build rather t
 
 ---
 
+- **For Phase 4 (decided 2026-11-19): no Index.** C.3's two-level navigation and D.2's full-width Index are dropped. The instance list stays beside every instance page and is the app's one place for choosing an instance, so D.2's work moves there: the list becomes the compact hover list (56px rows, accent, shift, a description of loader, version and play time, the icon inline, a few small stars), groups become numbered section labels with their clarity hue, drag and drop and the `/` filter stay, and the empty state stays as built (the wordmark large, `NEW INSTANCE` / `IMPORT`). No "collapse to the Index" below 960px; at narrow widths the list narrows instead.
+
 ## Progress
 
 - **Phase 0 (done, 2026-11-19, local only).** History cloned from `omacraft-source` (71 commits) into `~/Projects/asteria`; no remotes; branch `main`; fork point tagged `omacraft-v0.1.0-fork`. Omacraft's `v0.1.0` tag was dropped from this repo only, because `install.sh` builds the newest `v*` tag and would otherwise build Omacraft's code. The repo-local git identity is the noreply identity Omacraft's commits already used. The planning folder is kept at `~/Projects/asteria.planning` until you've checked the result. **Published 2026-11-19:** public repo https://github.com/star-ges/asteria (a plain repo, not a fork), `origin` set to it, `main` and the fork tag pushed. Nothing was ever pushed to Omacraft.
 - **Phase 1 (done).** Renamed to Asteria; Omarchy theme reading removed; StarShell light/dark palettes and clarity hues pinned on the existing widgets; light/dark followed from the XDG portal; first-run migration with a compatibility link; legacy names still read (play records, Java markers, icon key, client-id env var); new desktop entry and icons; install and uninstall scripts; README, AGENTS and CONTRIBUTING rewritten. 195 tests pass (8 new), and the build is warning-free. Checked end to end against a real Omacraft build on scratch data.
 - **Phase 2 (done, review stop).** `src/design/`: tokens (StarShell's values, one place), the light ⇄ dark crossfade (600ms, also driving the old screens' `Theme`), the portal watcher now also reading GNOME's `enable-animations` (reduced motion: durations 0, no stars), fonts (Switzer/Melodrama via fontconfig with a `sans-serif` fallback and a Settings note; Phosphor and JetBrains Mono bundled), motion helpers, the Phosphor name table, and the kit (`design/kit/*`): text and tabular figures, rules and section labels, buttons/joined rows/segmented, switch and checkbox, fields/query/notes, slider and meter with rulers, setting groups and rows (with the unsaved marker), quiet table, tiles and the big-picture crossfade, bars and the mark, sheet/strip/notice, bracketed paragraph, spec strip, empty and loading states, and `HoverList` (full, compact, quiet) with `StarField`, all with AccessKit info. The hidden gallery (`ASTERIA_DEBUG_VIEW=kit`) shows each part and the new patterns (spec strip, bottom-bar notices, bracketed warnings, the quiet configs tree, the unsaved-change marker, bisect answer rows, the device-code figure) in light, dark or both. Checked: Switzer and Melodrama (OTF/CFF) render through egui's skrifa; winit reports no theme on Wayland, so the D-Bus watcher stays; idle CPU ~1 tick per 10 s (nothing repaints while still); the missing-fonts run stays readable. **Deviation:** the bundled Nerd Font stays until the last old screen moves to Phosphor (removing it now would blank the old screens' icons); `theme.rs` is gone, its old-screen `Theme` lives on in `design/legacy.rs`. 203 tests pass (8 new; `theme.rs`'s three moved into `design`), build warning-free. No screen is switched over yet.
 - **Phase 2 review (2026-11-19), changes from your notes:** the slider has a handle that moves with its value, and a default mark is now a short muted tick above the track (it had read as the slider's end). The mark is the star alone, no square around it (changes C.1's "star in a block"). A destructive action's confirming button is filled with clay, the error colour (`Button::danger()`; widens approved exception 1 by this one fill; recorded in `AGENTS.md`). Bisect answers are quiet choice rows inside a settings group (label, description, a square that fills when chosen; `kit::choice_row`), not Melodrama hover rows (changes D.6).
+- **Phase 3 review (2026-11-19), changes from your notes:** the Index is gone (see the addendum above and H.1): the app opens on the selected instance's page with the list on its left, as before, and Enter on the list plays again. Sheets lose the `01 / instances` place caption; the keys sheet is headed just "Keys" with "make changes in settings".
+- **Phase 3 (done, review stop).** The app shell in the kit. The top bar is StarShell's hairline cells: the mark (back to the index), `01 instances · 02 accounts · 03 settings` with the marker, and on the right a cell per running game (olive `RUNNING`, opens its log) and the account (ochre `SIGN IN` when there's none; both lead to Accounts). The bottom bar has caption key hints (keys keep their case, so `e` and `E` differ) and the task with a ruled meter. Toasts became notices in the hint cell (info 5 s, errors until dismissed by a click or Esc, `MORE` opens a long one in a sheet). All dialogs are sheets over the content area (`App::sheet`, the modal layer, Esc closes); their headings are sentence case in the heading face; a sheet about one instance has its name as the caption, others none (revised after review: no "01 / instances" place caption, and the keys sheet says "make changes in settings"). Confirms are a strip at the content area's foot (caption, wrapped sentence, clay action, cancel). `?` is a kit-drawn sheet. The instances tab has two levels (`View`): the index (the list full width) and an instance page (the list as a rail, the header in the kit: caption line, the name in Melodrama with PLAY/EDIT/FOLDER, the spec strip, whose group and set cells open edit). Enter opens a page, `p` plays from the index, Esc or `h` from the rail goes back. The drop hint frames the pane the files would go into in the accent, and the bottom bar says what dropping does (no overlay). Addendum done: "Find breaking mod", answers "Problem occurred" / "Problem did not occur". Key labels say `enter`, `up`, `down` (Switzer has no arrow or Nerd glyphs). The list rows, rail, sections and the dialogs' insides are still the old widgets (Phases 4–8). 204 tests pass (1 new: `design::kit::sheet::tests::a_sheet_body_that_sets_its_height_stays_under_the_caption`), build warning-free. Checked on a headless output with scratch data: index, page, keyboard back and forth, new-instance sheet, help sheet, confirm strip, error notice.

@@ -42,7 +42,7 @@ pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
     }
 
     ui.set_width(560.0);
-    w::heading(ui, &t, "instance icon");
+    w::heading(ui, &t, "Instance icon");
     ui.add_space(10.0);
 
     let tile = 56.0;

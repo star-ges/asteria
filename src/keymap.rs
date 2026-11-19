@@ -144,7 +144,7 @@ actions!(
     (RollBack, "roll_back", "roll mods back to a backup (mods tab)", "instances", Instances, ["z"]),
     (Why, "why", "why the game crashed (log tabs)", "instances", Instances, ["w"]),
     (ModSets, "mod_sets", "mod sets: save, switch, rename (mods tab)", "instances", Instances, ["s"]),
-    (FindBreaking, "find_breaking", "find the breaking mod, or answer its step", "instances", Instances, ["b"]),
+    (FindBreaking, "find_breaking", "find breaking mod, or answer its step", "instances", Instances, ["b"]),
     (SaveConfig, "save_config", "save the config file (configs tab)", "instances", Instances, ["ctrl+s"]),
     (RawConfig, "config_text", "switch between fields and text (configs tab)", "instances", Instances, ["shift+r"]),
     (ConfigArea, "config_area", "next part: minecraft, mods, shaders (configs tab)", "instances", Instances, ["."]),
@@ -257,14 +257,14 @@ impl Chord {
         s
     }
 
-    /// For people: `J`, `ctrl+d`, `⏎`, `↓`.
+    /// For people: `J`, `ctrl+d`, `enter`, `down` (words, not arrows: Switzer has none).
     pub fn label(&self) -> String {
         let key = match self.key {
-            Key::Enter => "󰌑".to_string(),
-            Key::ArrowDown => "↓".into(),
-            Key::ArrowUp => "↑".into(),
-            Key::ArrowLeft => "←".into(),
-            Key::ArrowRight => "→".into(),
+            Key::Enter => "enter".to_string(),
+            Key::ArrowDown => "down".into(),
+            Key::ArrowUp => "up".into(),
+            Key::ArrowLeft => "left".into(),
+            Key::ArrowRight => "right".into(),
             Key::Escape => "esc".into(),
             Key::PageDown => "pgdn".into(),
             Key::PageUp => "pgup".into(),

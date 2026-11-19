@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use egui::{Align, CornerRadius, Key, Layout, RichText, Sense, Stroke, Ui, vec2};
+use egui::{Align, Key, Layout, Rect, Sense, Stroke, Ui, UiBuilder, vec2};
 
 use crate::auth::{self, Account, Accounts, MsaAccount};
 use crate::config::Config;
@@ -36,6 +36,8 @@ use crate::keymap::{Action, Keymap};
 use nav::{Nav, Zone};
 use crate::mojang::{self, Manifest};
 use crate::task::{Promise, Task, TaskStatus};
+use crate::design::kit::{self, sheet::StripAnswer};
+use crate::design::tokens as tk;
 use crate::design::{Look, Theme};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +75,8 @@ pub enum Modal {
     Bisect(Box<mod_sets::BisectDialog>),
     /// Leaving a config file with unsaved changes.
     ConfigLeave(Box<config::Leave>),
+    /// A notice too long for the bottom bar, in full (its `MORE`).
+    Message(ToastKind, String),
 }
 
 /// A yes/no question before something destructive.
@@ -134,19 +138,39 @@ pub enum ToastKind {
     Error,
 }
 
+/// A notice: it takes over the bottom bar's hint cell, info for a few seconds, errors until
+/// dismissed.
 pub struct Toast {
     text: String,
     kind: ToastKind,
     born: Instant,
+    /// New for each notice, so each one fades in.
+    serial: u64,
 }
 
 impl Toast {
     pub fn info(text: impl Into<String>) -> Self {
-        Toast { text: text.into(), kind: ToastKind::Info, born: Instant::now() }
+        Self::new(ToastKind::Info, text)
     }
 
     pub fn error(text: impl Into<String>) -> Self {
-        Toast { text: text.into(), kind: ToastKind::Error, born: Instant::now() }
+        Self::new(ToastKind::Error, text)
+    }
+
+    pub fn new(kind: ToastKind, text: impl Into<String>) -> Self {
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Toast { text: text.into(), kind, born: Instant::now(), serial: SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed) }
+    }
+
+    fn notice_kind(&self) -> kit::NoticeKind {
+        match self.kind {
+            ToastKind::Info => kit::NoticeKind::Info,
+            ToastKind::Error => kit::NoticeKind::Error,
+        }
+    }
+
+    fn alive(&self) -> bool {
+        self.notice_kind().alive(self.born.elapsed().as_secs_f32())
     }
 }
 
@@ -210,6 +234,13 @@ pub struct App {
     /// "new group" text in the instance context menu.
     pub group_buf: String,
     pub toasts: Vec<Toast>,
+    /// The area under the top bar and over the bottom bar, as last drawn: sheets and strips
+    /// take it over.
+    content_rect: Rect,
+    /// The pane files dropped now would go into, as last drawn (an instance tab's body).
+    pub drop_rect: Option<Rect>,
+    /// Which dialog is open, and a number new each time one opens (so each rises in).
+    modal_open: Option<(std::mem::Discriminant<Modal>, u64)>,
 }
 
 impl App {
@@ -268,6 +299,9 @@ impl App {
             world_links: crate::shares::sets_in_use(Kind::Worlds),
             group_buf: String::new(),
             toasts: Vec::new(),
+            content_rect: egui_ctx.content_rect(),
+            drop_rect: None,
+            modal_open: None,
         };
         app.load_manifest(egui_ctx);
         app
@@ -279,7 +313,7 @@ impl App {
     }
 
     pub fn toast(&mut self, kind: ToastKind, text: impl Into<String>) {
-        self.toasts.push(Toast { text: text.into(), kind, born: Instant::now() });
+        self.toasts.push(Toast::new(kind, text));
     }
 
     pub fn selected_instance(&self) -> Option<&Instance> {
@@ -675,137 +709,149 @@ impl App {
 
     // -- chrome -------------------------------------------------------------
 
+    /// The top bar: the mark, the three destinations, and on the right the running games and
+    /// the account. Every cell leads somewhere.
     fn top_bar(&mut self, ui: &mut Ui) {
-        let t = self.t.clone();
-        let h = t.body_size() + 22.0;
-        egui::Panel::top("top")
-            .exact_size(h)
-            .frame(egui::Frame::new().fill(t.bg).inner_margin(egui::Margin::symmetric(14, 0)))
-            .show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
-                    ui.label(RichText::new("󰍳 Asteria").font(crate::design::fonts::bold(t.body_size())).color(t.accent));
-                    ui.add_space(18.0);
-                    for (tab, key, label) in Tab::ALL {
-                        let on = self.tab == tab;
-                        let color = if on { t.fg_light } else { t.muted };
-                        let text = RichText::new(format!("{key} {label}")).color(color);
-                        let r = ui.add(egui::Label::new(text).sense(Sense::click()));
-                        if on {
-                            let y = r.rect.bottom() + (h - r.rect.height()) / 2.0 - 3.0;
-                            ui.painter().hline(r.rect.x_range(), y, Stroke::new(2.0, t.accent));
-                        }
-                        if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                            self.tab = tab;
-                        }
-                        ui.add_space(10.0);
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        match self.accounts.active() {
-                            Some(a) => {
-                                ui.label(RichText::new(a.kind()).color(t.muted));
-                                ui.label(RichText::new(format!("󰀄 {}", a.name())).color(t.fg));
-                            }
-                            None => {
-                                if ui
-                                    .add(egui::Label::new(RichText::new("󰀄 no account").color(t.yellow)).sense(Sense::click()))
-                                    .clicked()
-                                {
-                                    self.tab = Tab::Accounts;
-                                }
-                            }
-                        }
-                        let running: Vec<&str> = self
-                            .sessions
-                            .iter()
-                            .filter(|(_, s)| s.running())
-                            .filter_map(|(id, _)| self.instances.iter().find(|i| &i.id == id).map(|i| i.name.as_str()))
-                            .collect();
-                        if !running.is_empty() {
-                            ui.add_space(14.0);
-                            ui.label(RichText::new(format!("● {}", running.join(", "))).color(t.green));
-                        }
-                    });
-                });
-                let r = ui.max_rect();
-                ui.painter().hline(r.x_range(), r.bottom(), Stroke::new(1.0, t.fg_a(0.12)));
-            });
-    }
-
-    fn status_bar(&mut self, ui: &mut Ui) {
-        let t = self.t.clone();
-        egui::Panel::bottom("status")
-            .exact_size(t.body_size() + 18.0)
-            .frame(egui::Frame::new().fill(t.bg).inner_margin(egui::Margin::symmetric(14, 0)))
-            .show(ui, |ui| {
-                let r = ui.max_rect();
-                ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, t.fg_a(0.12)));
-                ui.horizontal_centered(|ui| {
-                    let hints = nav::hints(self);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        // Show the most recent unfinished task.
-                        let task = self
-                            .sessions
-                            .values()
-                            .map(|s| &s.task)
-                            .chain(self.content.tasks())
-                            .chain(self.imports.iter().map(|(t, _)| t))
-                            .chain(self.exports.iter().map(|(t, ..)| t))
-                            .chain(self.worlds.tasks())
-                            .chain(self.reclaim.iter().map(|(t, _)| t))
-                            .find(|t| t.status() == TaskStatus::Running)
-                            .cloned();
-                        if let Some(task) = task {
-                            widgets::progress(ui, &t, task.fraction(), 140.0);
-                            let stage = task.stage_text();
-                            let text = if stage.is_empty() { task.0.label.clone() } else { stage };
-                            ui.label(RichText::new(text).color(t.muted));
-                            ui.ctx().request_repaint_after(Duration::from_millis(100));
-                        }
-                        // Hints get whatever is left, clipped rather than overlapping.
-                        ui.add_space(16.0);
-                        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                            ui.shrink_clip_rect(ui.max_rect());
-                            for (k, l) in &hints {
-                                widgets::key_hint(ui, &t, k, l);
-                            }
-                        });
-                    });
-                });
-            });
-    }
-
-    fn toasts(&mut self, ctx: &egui::Context) {
-        let t = self.t.clone();
-        self.toasts.retain(|n| n.born.elapsed() < Duration::from_secs(if n.kind == ToastKind::Error { 9 } else { 5 }));
-        if self.toasts.is_empty() {
-            return;
-        }
-        ctx.request_repaint_after(Duration::from_millis(500));
-        let mut dismiss = None;
-        egui::Area::new(egui::Id::new("toasts"))
-            .anchor(egui::Align2::RIGHT_TOP, vec2(-14.0, t.body_size() + 34.0))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                for (i, n) in self.toasts.iter().enumerate().rev() {
-                    let border = if n.kind == ToastKind::Error { t.red } else { t.border_active };
-                    let r = egui::Frame::new()
-                        .fill(t.bg)
-                        .stroke(Stroke::new(2.0, border))
-                        .inner_margin(12)
-                        .corner_radius(CornerRadius::ZERO)
-                        .show(ui, |ui| {
-                            ui.set_width(340.0);
-                            widgets::para(ui, RichText::new(&n.text).color(t.fg));
-                        });
-                    if r.response.interact(Sense::click()).clicked() {
-                        dismiss = Some(i);
-                    }
-                    ui.add_space(8.0);
+        let t = self.look.tokens.clone();
+        egui::Panel::top("top").exact_size(tk::BAR_HEIGHT).frame(egui::Frame::new().fill(t.background)).show(ui, |ui| {
+            kit::bar(ui, &t, |ui| {
+                if kit::mark_cell(ui, &t, "Asteria").clicked() {
+                    self.tab = Tab::Instances;
                 }
+                for (n, (tab, _, label)) in Tab::ALL.into_iter().enumerate() {
+                    if kit::BarCell::new(label).number(n + 1).open(self.tab == tab).show(ui, &t).clicked() {
+                        self.tab = tab;
+                    }
+                }
+                // The right end gets the room left, clipped rather than drawn over the cells.
+                let room = ui.available_rect_before_wrap();
+                ui.scope_builder(UiBuilder::new().max_rect(room).layout(Layout::right_to_left(Align::Center)), |ui| {
+                    ui.set_clip_rect(room.intersect(ui.clip_rect()));
+                    let account = match self.accounts.active() {
+                        Some(a) => kit::BarCell::new(&format!("{} · {}", a.name(), a.kind())).right().show(ui, &t),
+                        None => kit::BarCell::new("no account").status("sign in", t.warning()).right().show(ui, &t),
+                    };
+                    if account.clicked() {
+                        self.tab = Tab::Accounts;
+                    }
+                    let running: Vec<(String, String)> = self
+                        .instances
+                        .iter()
+                        .filter(|i| self.is_running(&i.id))
+                        .map(|i| (i.id.clone(), i.name.clone()))
+                        .collect();
+                    for (id, name) in running {
+                        // A running game's cell opens its log.
+                        if kit::BarCell::new(&name).status("running", t.ok()).right().show(ui, &t).clicked() {
+                            self.selected = Some(id);
+                            self.inst_tab = InstTab::Log;
+                            self.tab = Tab::Instances;
+                        }
+                    }
+                });
             });
-        if let Some(i) = dismiss {
-            self.toasts.remove(i);
+        });
+    }
+
+    /// The bottom bar: key hints (or a notice, or what a drop would do) and the task running.
+    /// Drawn in the foreground, so a notice can be dismissed while a sheet is open.
+    fn status_bar(&mut self, ui: &mut Ui) {
+        let t = self.look.tokens.clone();
+        let rect = egui::Panel::bottom("status").exact_size(tk::BAR_HEIGHT).frame(egui::Frame::new().fill(t.background)).show(ui, |ui| ui.max_rect()).inner;
+        let ctx = ui.ctx().clone();
+        // Show the most recent unfinished task.
+        let task = self
+            .sessions
+            .values()
+            .map(|s| &s.task)
+            .chain(self.content.tasks())
+            .chain(self.imports.iter().map(|(t, _)| t))
+            .chain(self.exports.iter().map(|(t, ..)| t))
+            .chain(self.worlds.tasks())
+            .chain(self.reclaim.iter().map(|(t, _)| t))
+            .chain(self.sharing.iter().map(|(t, _)| t))
+            .find(|t| t.status() == TaskStatus::Running)
+            .cloned();
+        self.toasts.retain(Toast::alive);
+        if self.toasts.last().is_some_and(|n| n.kind == ToastKind::Info) {
+            ctx.request_repaint_after(Duration::from_millis(250));
         }
+        let hints = nav::hints(self);
+        let drop = self.drop_text(&ctx);
+        let mut dismissed = None;
+        let mut more = None;
+        egui::Area::new(egui::Id::new("status-bar")).order(egui::Order::Foreground).fixed_pos(rect.min).constrain(false).show(&ctx, |ui| {
+            ui.set_clip_rect(rect);
+            let (rect, _) = ui.allocate_exact_size(rect.size(), Sense::hover());
+            ui.painter().rect_filled(rect, 0.0, t.background);
+            kit::hline(ui.painter(), rect.x_range(), rect.top() + 0.5, t.line_strong);
+            let task_w = if task.is_some() { (rect.width() * 0.32).clamp(220.0, 400.0) } else { 0.0 };
+            let cell = Rect::from_min_max(rect.min, egui::pos2(rect.right() - task_w, rect.bottom()));
+            if let Some(task) = &task {
+                let r = Rect::from_min_max(egui::pos2(cell.right(), rect.top()), rect.max);
+                kit::vline(ui.painter(), r.left(), r.y_range(), t.line_strong);
+                ui.scope_builder(UiBuilder::new().max_rect(r.shrink2(vec2(tk::GAP, 0.0))).layout(Layout::left_to_right(Align::Center)), |ui| {
+                    let stage = task.stage_text();
+                    let text = if stage.is_empty() { task.0.label.clone() } else { stage };
+                    let meter_w = (ui.available_width() * 0.4).max(60.0);
+                    ui.allocate_ui_with_layout(vec2(ui.available_width() - meter_w - tk::GAP, ui.available_height()), Layout::left_to_right(Align::Center), |ui| {
+                        ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+                        ui.add(egui::Label::new(kit::text::caption_job(&text, t.text_muted)).truncate());
+                    });
+                    ui.add_space(tk::GAP);
+                    ui.vertical(|ui| {
+                        ui.add_space((tk::BAR_HEIGHT - kit::slider::METER_TOTAL_HEIGHT) / 2.0 + 2.0);
+                        let fill = task.fraction().map_or(kit::Fill::Unknown, kit::Fill::Part);
+                        kit::meter(ui, &t, fill, meter_w, &[]);
+                    });
+                });
+                ui.ctx().request_repaint_after(Duration::from_millis(100));
+            }
+            if let Some(text) = drop {
+                // What a drop would do takes the hint cell while files are over the window.
+                kit::text::paint_caption(ui.painter(), egui::pos2(cell.left() + tk::GUTTER, cell.center().y), &text, t.accent);
+            } else if let Some(n) = self.toasts.last() {
+                let out = kit::notice(ui, &t, cell, egui::Id::new(("notice", n.serial)), n.notice_kind(), &n.text);
+                if out.dismissed {
+                    dismissed = Some(n.serial);
+                }
+                if out.more {
+                    more = Some((n.serial, n.kind, n.text.clone()));
+                }
+            } else {
+                ui.scope_builder(UiBuilder::new().max_rect(cell.shrink2(vec2(tk::GUTTER, 0.0))).layout(Layout::left_to_right(Align::Center)), |ui| {
+                    // Hints get the room there is, clipped rather than overlapping the task.
+                    ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+                    ui.spacing_mut().item_spacing.x = tk::GUTTER;
+                    for (k, l) in &hints {
+                        kit::key_hint(ui, &t, k, l);
+                    }
+                });
+            }
+        });
+        if let Some(serial) = dismissed {
+            self.toasts.retain(|n| n.serial != serial);
+        }
+        if let Some((serial, kind, text)) = more {
+            self.toasts.retain(|n| n.serial != serial);
+            // A dialog that's open keeps its place; the notice is then just put away.
+            if self.modal.is_none() {
+                self.modal = Some(Modal::Message(kind, text));
+            }
+        }
+    }
+
+    /// While files are dragged over the window, what dropping them does.
+    fn drop_text(&self, ctx: &egui::Context) -> Option<String> {
+        if !smithay_clipboard::hovering() && ctx.input(|i| i.raw.hovered_files.is_empty()) {
+            return None;
+        }
+        Some(match self.drop_target() {
+            Some((_, DropTarget::Content(kind))) => format!("drop to add to {}s", kind.noun()),
+            Some((_, DropTarget::Worlds)) => "drop to add to worlds (folders or .zip)".into(),
+            None if self.tab == Tab::Accounts && self.modal.is_none() => "drop a skin (.png) or a pack to import".into(),
+            None => "drop to import".into(),
+        })
     }
 
     fn keys(&mut self, ctx: &egui::Context) {
@@ -834,6 +880,11 @@ impl App {
             let mut cands = nav::PANE_ACTIONS.to_vec();
             cands.extend([FocusLeft, FocusRight]);
             self.nav = km.take(ctx, &cands).and_then(|a| nav::to_nav(a, true));
+            return;
+        }
+        // An error notice holds the bar until it's dismissed; Esc does that first.
+        if self.toasts.last().is_some_and(|n| n.kind == ToastKind::Error) && km.take(ctx, &[Back]).is_some() {
+            self.toasts.pop();
             return;
         }
         let mut cands = vec![Help, TabInstances, TabAccounts, TabSettings, Play, New, Import, Export, Groups];
@@ -1097,23 +1148,18 @@ impl App {
         }
     }
 
-    /// While files are dragged over the window, say what dropping them does.
+    /// While files are dragged over the window, the pane they'd go into is framed in the
+    /// accent (the bottom bar says what dropping does).
     fn drop_hint(&self, ctx: &egui::Context) {
-        if !smithay_clipboard::hovering() && ctx.input(|i| i.raw.hovered_files.is_empty()) {
+        if self.drop_text(ctx).is_none() {
             return;
         }
-        let t = &self.t;
-        let text = match self.drop_target() {
-            Some((_, DropTarget::Content(kind))) => format!("drop to add {}s", kind.noun()),
-            Some((_, DropTarget::Worlds)) => "drop to add worlds (folders or .zip)".into(),
-            None if self.tab == Tab::Accounts && self.modal.is_none() => "drop a skin (.png) or a pack to import".into(),
-            None => "drop to import".into(),
+        let rect = match self.drop_target() {
+            Some(_) => self.drop_rect.unwrap_or(self.content_rect),
+            None => self.content_rect,
         };
-        let rect = ctx.content_rect();
         let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("drop-hint")));
-        p.rect_filled(rect, 0.0, widgets::scrim(t));
-        p.rect_stroke(rect.shrink(6.0), 0.0, Stroke::new(2.0, t.border_active), egui::StrokeKind::Inside);
-        p.text(rect.center(), egui::Align2::CENTER_CENTER, format!("\u{f019}  {text}"), egui::FontId::monospace(t.body_size() + 4.0), t.fg);
+        p.rect_stroke(rect.shrink(tk::LINE / 2.0), 0.0, Stroke::new(tk::LINE, self.look.tokens.accent), egui::StrokeKind::Inside);
     }
 
     /// The tab a drop would add files to: mods, packs or worlds, with no dialog up.
@@ -1215,13 +1261,18 @@ impl eframe::App for App {
 
         self.top_bar(ui);
         self.status_bar(ui);
-        let t = self.t.clone();
+        // The instance page sets it again as it draws.
+        self.drop_rect = None;
+        let bg = self.look.tokens.background;
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(t.bg))
-            .show(ui, |ui| match self.tab {
-                Tab::Instances => instances::show(self, ui),
-                Tab::Accounts => accounts::show(self, ui),
-                Tab::Settings => settings::show(self, ui),
+            .frame(egui::Frame::new().fill(bg))
+            .show(ui, |ui| {
+                self.content_rect = ui.max_rect();
+                match self.tab {
+                    Tab::Instances => instances::show(self, ui),
+                    Tab::Accounts => accounts::show(self, ui),
+                    Tab::Settings => settings::show(self, ui),
+                }
             });
 
         if self.modal.is_none()
@@ -1231,22 +1282,80 @@ impl eframe::App for App {
         }
         config::guard(self, &ctx);
         self.show_modal(&ctx);
-        self.toasts(&ctx);
         self.drop_hint(&ctx);
         self.nav = None;
     }
 }
 
+/// What a sheet's body returned, and whether Esc closed it.
+struct SheetOut<R> {
+    inner: R,
+    esc: bool,
+}
+
+impl<R> SheetOut<R> {
+    /// The dialog said to close (`true`), or Esc did.
+    fn close(&self) -> bool
+    where
+        R: Copy + Into<bool>,
+    {
+        self.inner.into() || self.esc
+    }
+}
+
 impl App {
+    /// A dialog as a sheet: it takes over the content area under the top bar, which stays, and
+    /// only it takes the pointer and keyboard focus (the panes under it still draw).
+    fn sheet<R>(&mut self, ctx: &egui::Context, caption: &str, body: impl FnOnce(&mut App, &mut Ui) -> R) -> SheetOut<R> {
+        let t = self.look.tokens.clone();
+        let rect = self.content_rect;
+        let id = self.sheet_id();
+        let area = egui::Area::new(egui::Id::new("sheet")).order(egui::Order::Middle).fixed_pos(rect.min).constrain(false).movable(false);
+        let top = ctx.memory_mut(|m| {
+            m.set_modal_layer(area.layer());
+            m.top_modal_layer() == Some(area.layer())
+        });
+        let popup = egui::Popup::is_any_open(ctx);
+        let inner = area
+            .show(ctx, |ui| {
+                ui.set_clip_rect(rect);
+                ui.set_min_size(rect.size());
+                kit::sheet(ui, &t, rect, id, caption, "", |ui| body(self, ui))
+            })
+            .inner;
+        // As egui's own modals: Esc closes the topmost one, unless a popup in it is open.
+        let esc = top && !popup && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
+        SheetOut { inner, esc }
+    }
+
+    /// The open dialog's id: new each time one opens, so each rises in.
+    fn sheet_id(&self) -> egui::Id {
+        egui::Id::new(("sheet", self.modal_open.map_or(0, |(_, n)| n)))
+    }
+
+    /// The caption over a sheet about an instance: its name (the dialog's heading says what it is).
+    fn sheet_caption_for(&self, id: Option<&str>) -> String {
+        let id = id.or(self.selected.as_deref());
+        id.and_then(|id| self.instances.iter().find(|i| i.id == id)).map(|i| i.name.clone()).unwrap_or_default()
+    }
+
     fn show_modal(&mut self, ctx: &egui::Context) {
-        let Some(modal) = self.modal.take() else { return };
-        let t = self.t.clone();
+        let Some(modal) = self.modal.take() else {
+            self.modal_open = None;
+            return;
+        };
+        let kind = std::mem::discriminant(&modal);
+        self.modal_open = match self.modal_open {
+            Some((k, n)) if k == kind => Some((k, n)),
+            _ => {
+                static OPENED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                Some((kind, OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed)))
+            }
+        };
         let keep = match modal {
             Modal::NewInstance(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("new-instance"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| new_instance::show(self, &mut s, ui));
+                let caption = String::new();
+                let r = self.sheet(ctx, &caption, |app, ui| new_instance::show(app, &mut s, ui));
                 match r.inner {
                     Some(new_instance::Outcome::Created(inst)) => {
                         self.selected = Some(inst.id.clone());
@@ -1259,17 +1368,15 @@ impl App {
                         self.start_import(ctx, req);
                         None
                     }
-                    None if r.should_close() || s.cancelled => None,
+                    None if r.esc || s.cancelled => None,
                     None => Some(Modal::NewInstance(s)),
                 }
             }
             Modal::Edit(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("edit-instance"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| instances::edit(self, &mut s, ui));
+                let caption = self.sheet_caption_for(Some(&s.id));
+                let r = self.sheet(ctx, &caption, |app, ui| instances::edit(app, &mut s, ui));
                 match r.inner {
-                    instances::EditOutcome::Keep if !r.should_close() => Some(Modal::Edit(s)),
+                    instances::EditOutcome::Keep if !r.esc => Some(Modal::Edit(s)),
                     instances::EditOutcome::Delete => {
                         self.confirm_delete_instance(&s.id);
                         self.modal.take()
@@ -1278,113 +1385,118 @@ impl App {
                 }
             }
             Modal::IconPicker(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("icon-picker"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| icon_picker::show(self, &mut s, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::IconPicker(s)) }
+                let caption = self.sheet_caption_for(None);
+                let r = self.sheet(ctx, &caption, |app, ui| icon_picker::show(app, &mut s, ui));
+                (!r.close()).then_some(Modal::IconPicker(s))
             }
             Modal::Export(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("export"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| export::show(self, &mut s, ui));
+                let caption = self.sheet_caption_for(None);
+                let r = self.sheet(ctx, &caption, |app, ui| export::show(app, &mut s, ui));
                 match r.inner {
                     Some(Ok(req)) => {
                         self.start_export(ctx, req);
                         None
                     }
                     Some(Err(())) => None,
-                    None if r.should_close() => None,
+                    None if r.esc => None,
                     None => Some(Modal::Export(s)),
                 }
             }
             Modal::Help => {
-                let r = egui::Modal::new(egui::Id::new("help"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| nav::help(self, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::Help) }
+                let caption = String::new();
+                let r = self.sheet(ctx, &caption, |app, ui| nav::help(app, ui));
+                (!r.close()).then_some(Modal::Help)
             }
             Modal::Groups(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("groups"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| group_manager::show(self, &mut s, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::Groups(s)) }
+                let caption = String::new();
+                let r = self.sheet(ctx, &caption, |app, ui| group_manager::show(app, &mut s, ui));
+                (!r.close()).then_some(Modal::Groups(s))
             }
             Modal::SetVersion(s) => {
-                let r = egui::Modal::new(egui::Id::new("set-version"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| version::set_version_dialog(self, &s, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::SetVersion(s)) }
+                let caption = self.sheet_caption_for(None);
+                let r = self.sheet(ctx, &caption, |app, ui| version::set_version_dialog(app, &s, ui));
+                (!r.close()).then_some(Modal::SetVersion(s))
             }
             Modal::RollBack(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("roll-back"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| content::roll_back_dialog(self, &mut s, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::RollBack(s)) }
+                let caption = self.sheet_caption_for(None);
+                let r = self.sheet(ctx, &caption, |app, ui| content::roll_back_dialog(app, &mut s, ui));
+                (!r.close()).then_some(Modal::RollBack(s))
             }
             Modal::WorldRollBack(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("world-roll-back"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| content::world_prompt_dialog(self, &mut s, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::WorldRollBack(s)) }
+                let caption = self.sheet_caption_for(None);
+                let r = self.sheet(ctx, &caption, |app, ui| content::world_prompt_dialog(app, &mut s, ui));
+                (!r.close()).then_some(Modal::WorldRollBack(s))
             }
             Modal::ModSets(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("mod-sets"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| mod_sets::sets_dialog(self, &mut s, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::ModSets(s)) }
+                let caption = self.sheet_caption_for(None);
+                let r = self.sheet(ctx, &caption, |app, ui| mod_sets::sets_dialog(app, &mut s, ui));
+                (!r.close()).then_some(Modal::ModSets(s))
             }
             Modal::Bisect(mut s) => {
-                let r = egui::Modal::new(egui::Id::new("bisect"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| mod_sets::bisect_dialog(self, &mut s, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::Bisect(s)) }
+                let caption = self.sheet_caption_for(None);
+                let r = self.sheet(ctx, &caption, |app, ui| mod_sets::bisect_dialog(app, &mut s, ui));
+                (!r.close()).then_some(Modal::Bisect(s))
             }
             Modal::ConfigLeave(s) => {
-                let r = egui::Modal::new(egui::Id::new("config-leave"))
-                    .frame(widgets::modal_frame(&t))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| config::leave_dialog(self, &s, ui));
-                if r.inner || r.should_close() { None } else { Some(Modal::ConfigLeave(s)) }
+                let caption = self.sheet_caption_for(None);
+                let r = self.sheet(ctx, &caption, |app, ui| config::leave_dialog(app, &s, ui));
+                (!r.close()).then_some(Modal::ConfigLeave(s))
             }
-            Modal::Confirm(c) => {
-                let mut yes = false;
-                // ⏎ arrives as Activate; a raw Enter only if a widget had focus.
-                let activate = self.modal_nav() == Some(Nav::Activate);
-                let r = egui::Modal::new(egui::Id::new("confirm"))
-                    .frame(widgets::modal_frame(&t).stroke(Stroke::new(2.0, t.red)))
-                    .backdrop_color(widgets::scrim(&t))
-                    .show(ctx, |ui| {
-                        ui.set_width(420.0);
-                        widgets::heading(ui, &t, &c.title);
-                        ui.add_space(8.0);
-                        widgets::para(ui, &c.body);
-                        ui.add_space(14.0);
-                        ui.horizontal(|ui| {
-                            if widgets::danger_button(ui, &t, &c.button).clicked() || activate || ui.input(|i| i.key_pressed(Key::Enter)) {
-                                yes = true;
-                                return true;
-                            }
-                            widgets::button(ui, "cancel").clicked()
-                        })
-                        .inner
-                    });
-                if yes {
+            Modal::Message(kind, text) => {
+                let caption = if kind == ToastKind::Error { "error" } else { "notice" }.to_string();
+                let r = self.sheet(ctx, &caption, |app, ui| message(app, ui, &text));
+                (!r.close()).then_some(Modal::Message(kind, text))
+            }
+            Modal::Confirm(c) => match self.confirm_strip(ctx, &c) {
+                Some(StripAnswer::Confirm) => {
                     self.run_confirmed(ctx, &c.action);
+                    None
                 }
-                if r.inner || r.should_close() { None } else { Some(Modal::Confirm(c)) }
-            }
+                Some(StripAnswer::Cancel) => None,
+                None => Some(Modal::Confirm(c)),
+            },
         };
         if self.modal.is_none() {
             self.modal = keep;
         }
     }
+
+    /// A confirmation as a strip over the foot of the content area. Enter confirms, Esc cancels.
+    fn confirm_strip(&mut self, ctx: &egui::Context, c: &Confirm) -> Option<StripAnswer> {
+        let t = self.look.tokens.clone();
+        let rect = self.content_rect;
+        let id = self.sheet_id();
+        // ⏎ arrives as Activate; a raw Enter only if a widget had focus.
+        let activate = self.modal_nav() == Some(Nav::Activate) || ctx.input(|i| i.key_pressed(Key::Enter));
+        let area = egui::Area::new(egui::Id::new("strip")).order(egui::Order::Middle).pivot(egui::Align2::LEFT_BOTTOM).fixed_pos(rect.left_bottom()).constrain(false).movable(false);
+        ctx.memory_mut(|m| m.set_modal_layer(area.layer()));
+        let answer = area
+            .show(ctx, |ui| {
+                ui.set_width(rect.width());
+                egui::Frame::new().fill(t.background).show(ui, |ui| kit::strip(ui, &t, id, &c.title, &c.body, &c.button)).inner
+            })
+            .inner;
+        let esc = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
+        answer.or(activate.then_some(StripAnswer::Confirm)).or(esc.then_some(StripAnswer::Cancel))
+    }
+}
+
+/// A notice in full, from its `MORE`. Returns true when it should close.
+fn message(app: &mut App, ui: &mut Ui, text: &str) -> bool {
+    let t = app.look.tokens.clone();
+    let mut close = false;
+    egui::ScrollArea::vertical().max_height(ui.available_height() - tk::BUTTON_HEIGHT - tk::GUTTER * 2.0).auto_shrink([false, true]).show(ui, |ui| {
+        ui.set_max_width(tk::SETTING_DESCRIPTION_WIDTH * 1.5);
+        kit::body(ui, &t, text);
+    });
+    ui.add_space(tk::GUTTER);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = tk::GAP;
+        if kit::Button::new("copy").icon(crate::design::glyphs::COPY).show(ui, &t).clicked() {
+            ui.ctx().copy_text(text.to_string());
+            app.toast(ToastKind::Info, "Copied");
+        }
+        close = kit::Button::new("close").show(ui, &t).clicked() || app.modal_nav() == Some(Nav::Activate);
+    });
+    close
 }

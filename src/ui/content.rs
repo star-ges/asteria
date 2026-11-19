@@ -345,7 +345,7 @@ impl ContentState {
         self.mod_jobs = running;
         for j in done {
             let done = j.promise.take().unwrap().unwrap_or_else(|e| ModJobDone::new(ToastKind::Error, format!("{e:#}")));
-            toasts.push(Toast { kind: done.kind, text: done.text, born: Instant::now() });
+            toasts.push(Toast::new(done.kind, done.text));
             self.world_prompts.extend(done.worlds);
             // What was found for that instance is out of date now.
             if self.updates.as_ref().is_some_and(|(id, _)| *id == j.inst_id) {
@@ -384,7 +384,7 @@ impl ContentState {
                     }
                     Err(e) => (ToastKind::Error, format!("{title}: {e:#}")),
                 };
-                toasts.push(Toast { kind, text, born: Instant::now() });
+                toasts.push(Toast::new(kind, text));
                 s.cache = None;
             }
         }
@@ -425,7 +425,7 @@ fn install_blocked(app: &mut App, inst: &Instance, kind: ContentKind) -> Option<
         Some("The game is starting; install again once it has")
     } else if kind == ContentKind::Mods && app.mod_sets.searching(inst) {
         // Mods stay as each step of a search for the breaking mod sets them.
-        Some("Finding the breaking mod; install once it's done")
+        Some("Finding breaking mod; install once it's done")
     } else {
         None
     }
@@ -689,7 +689,7 @@ pub fn roll_back_dialog(app: &mut App, s: &mut RollBack, ui: &mut Ui) -> bool {
     let t = app.t.clone();
     let kb = app.modal_nav();
     ui.set_width(520.0);
-    w::heading(ui, &t, "roll back mods");
+    w::heading(ui, &t, "Roll back mods");
     ui.add_space(8.0);
     if s.list.is_empty() {
         w::para(ui, RichText::new(format!("No backups of {}'s mods yet. One is taken before every update.", s.name)).color(t.muted));
@@ -795,7 +795,7 @@ pub fn world_prompt_dialog(app: &mut App, p: &mut WorldPrompt, ui: &mut Ui) -> b
     let t = app.t.clone();
     let kb = app.modal_nav();
     ui.set_width(520.0);
-    w::heading(ui, &t, "roll back the world too?");
+    w::heading(ui, &t, "Roll back the world too?");
     ui.add_space(8.0);
     w::para(ui, format!("“{}” was last played with {}, which the rollback took away. Restore the world from a backup as well?", p.name, p.what));
     ui.add_space(8.0);

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 use egui::{RichText, Stroke, Ui};
 
@@ -56,7 +55,7 @@ struct PendingSkin {
 
 impl AccountsState {
     pub fn poll(&mut self, accounts: &mut Accounts, toasts: &mut Vec<Toast>) {
-        let mut toast = |kind, text: String| toasts.push(Toast { kind, text, born: Instant::now() });
+        let mut toast = |kind, text: String| toasts.push(Toast::new(kind, text));
         if let Some(p) = &self.begin_p
             && let Some(r) = p.take()
         {
@@ -187,7 +186,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let kb = app.nav_for(Zone::Main);
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 16, bottom: 12 }).show(ui, |ui| {
-            w::heading(ui, &t, "accounts");
+            w::heading(ui, &t, "Accounts");
             ui.add_space(8.0);
             if ui.available_width() >= 1000.0 {
                 ui.horizontal_top(|ui| {

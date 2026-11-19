@@ -2,6 +2,8 @@ use egui::{Align, Layout, RichText, Sense, Ui, vec2};
 
 use super::widgets::{self as w, Lead};
 use super::{App, Confirm, ConfirmAction, Modal, ToastKind, config, content, logs, new_instance, screenshots, servers, version, worlds};
+use crate::design::kit::{self, Button, Spec};
+use crate::design::{glyphs as g, tokens as tk};
 use super::nav::{Nav, Zone};
 use crate::icons;
 use crate::instance::{self, ContentKind, Instance};
@@ -77,67 +79,75 @@ enum RowAction {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui) {
-    let t = app.t.clone();
     let ctx = ui.ctx().clone();
-
     if app.instances.is_empty() {
-        ui.vertical_centered(|ui| {
-            ui.add_space(ui.available_height() * 0.28);
-            ui.add(egui::Image::new(icons::source(icons::DEFAULT)).fit_to_exact_size(vec2(72.0, 72.0)));
-            ui.add_space(10.0);
-            w::heading(ui, &t, "no instances yet");
-            ui.label(RichText::new("an instance is a self-contained minecraft install").color(t.muted));
-            ui.add_space(16.0);
-            ui.horizontal(|ui| {
-                let total = 300.0;
-                ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
-                if w::primary_button(ui, &t, "  new instance  ").clicked() {
-                    app.modal = Some(Modal::NewInstance(Box::new(new_instance::NewInstance::new(&app.cfg))));
-                }
-                if w::button(ui, "  import…  ").clicked() {
-                    app.modal = Some(Modal::NewInstance(Box::new(new_instance::NewInstance::import(&app.cfg, String::new()))));
-                }
-            });
-        });
-        return;
+        return empty(app, ui);
     }
-
+    // The list on the left, the selected instance's page on the right.
+    let t = app.look.tokens.clone();
     egui::Panel::left("instance-list")
-        .exact_size((ui.available_width() * 0.3).clamp(200.0, 300.0))
+        .exact_size((ui.available_width() * 0.24).clamp(200.0, 300.0))
         .resizable(false)
-        .frame(egui::Frame::new().fill(t.bg).inner_margin(egui::Margin { left: 10, right: 10, top: 12, bottom: 10 }))
+        .frame(egui::Frame::new().fill(t.background).inner_margin(egui::Margin { left: 10, right: 10, top: 12, bottom: 10 }))
         .show(ui, |ui| {
             let r = ui.max_rect();
-            ui.painter().vline(r.right() + 10.0, r.y_range(), egui::Stroke::new(1.0, t.fg_a(0.12)));
-            ui.horizontal(|ui| {
-                let focus = std::mem::take(&mut app.focus_filter);
-                let resp = w::text_input(ui, &mut app.filter, "/ filter", ui.available_width() - 40.0, focus);
-                if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    app.filter.clear();
-                    resp.surrender_focus();
-                }
-                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    // Enter in the filter selects the first match.
-                    if let Some(&n) = app.visible_instances().first() {
-                        app.selected = Some(app.instances[n].id.clone());
-                    }
-                }
-                if w::button(ui, "+").on_hover_text("new or import (n / i)").clicked() {
-                    app.modal = Some(Modal::NewInstance(Box::new(new_instance::NewInstance::new(&app.cfg))));
-                }
-            });
+            kit::vline(ui.painter(), r.right() + 10.0, r.y_range(), t.line_strong);
+            filter_line(app, ui);
             ui.add_space(8.0);
-            let actions = list(app, ui);
-            for a in actions {
+            for a in list(app, ui) {
                 apply(app, &ctx, a);
             }
         });
+    match app.selected_instance().cloned() {
+        Some(inst) => detail(app, ui, &inst),
+        None => {
+            egui::Frame::new().inner_margin(egui::Margin::same(tk::GUTTER as i8)).show(ui, |ui| {
+                kit::empty_state(ui, &t, "No instance selected", "Pick one on the left.", None);
+            });
+        }
+    }
+}
 
-    let Some(inst) = app.selected_instance().cloned() else {
-        ui.centered_and_justified(|ui| ui.label(RichText::new("select an instance").color(t.muted)));
-        return;
-    };
-    detail(app, ui, &inst);
+/// No instances yet: the wordmark large, what an instance is, and the two ways to get one.
+fn empty(app: &mut App, ui: &mut Ui) {
+    let t = app.look.tokens.clone();
+    egui::Frame::new().inner_margin(egui::Margin::same(tk::GUTTER as i8)).show(ui, |ui| {
+        ui.add_space((ui.available_height() * 0.2).max(tk::GUTTER));
+        kit::text::display_large(ui, &t, "Asteria", tk::SIZE_DISPLAY_LARGE.min(ui.available_width() / 4.0));
+        ui.add_space(tk::GUTTER);
+        kit::caption(ui, &t, "an instance is a self-contained minecraft install");
+        ui.add_space(tk::GUTTER);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = tk::GAP;
+            if Button::new("new instance").filled().show(ui, &t).clicked() {
+                app.modal = Some(Modal::NewInstance(Box::new(new_instance::NewInstance::new(&app.cfg))));
+            }
+            if Button::new("import").show(ui, &t).clicked() {
+                app.modal = Some(Modal::NewInstance(Box::new(new_instance::NewInstance::import(&app.cfg, String::new()))));
+            }
+        });
+    });
+}
+
+/// The filter and the new-instance button over the list.
+fn filter_line(app: &mut App, ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        let focus = std::mem::take(&mut app.focus_filter);
+        let resp = w::text_input(ui, &mut app.filter, "/ filter", ui.available_width() - 40.0, focus);
+        if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            app.filter.clear();
+            resp.surrender_focus();
+        }
+        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            // Enter in the filter selects the first match.
+            if let Some(&n) = app.visible_instances().first() {
+                app.selected = Some(app.instances[n].id.clone());
+            }
+        }
+        if w::button(ui, "+").on_hover_text("new or import (n / i)").clicked() {
+            app.modal = Some(Modal::NewInstance(Box::new(new_instance::NewInstance::new(&app.cfg))));
+        }
+    });
 }
 
 fn list(app: &mut App, ui: &mut Ui) -> Vec<RowAction> {
@@ -344,81 +354,13 @@ fn apply(app: &mut App, ctx: &egui::Context, a: RowAction) {
 }
 
 fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
-    let t = app.t.clone();
-    egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 18, top: 16, bottom: 12 }).show(ui, |ui| {
-        let disk = app.sizes.get(inst, &app.rt, ui.ctx());
-        let tint = app.groups.color(&inst.group).and_then(|c| t.named(c));
-        // Below this width the buttons move under the title instead of
-        // squeezing it.
-        let stacked = ui.available_width() < 620.0;
-        let buttons = |app: &mut App, ui: &mut Ui| {
-            if w::button(ui, "folder").clicked() {
-                super::open_path(&inst.game_dir());
-            }
-            if w::button(ui, "edit").clicked() {
-                app.modal = Some(Modal::Edit(Box::new(EditState::from(inst))));
-            }
-            if app.is_running(&inst.id) {
-                if w::danger_button(ui, &t, "■ stop").clicked() {
-                    app.kill(&inst.id);
-                }
-            } else if w::primary_button(ui, &t, "󰐊 play").clicked() {
-                app.launch(ui.ctx(), &inst.id, None);
-            }
-        };
-        let summary = |app: &mut App, ui: &mut Ui| {
-            let size = t.body_size() * 3.6;
-            let icon = ui
-                .add(egui::Image::new(icons::source(&inst.icon)).fit_to_exact_size(vec2(size, size)).corner_radius(size * 0.18).sense(Sense::click()))
-                .on_hover_text("change icon")
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
-            if icon.clicked() {
-                app.modal = Some(Modal::IconPicker(Box::new(super::icon_picker::IconPicker::new(inst.id.clone()))));
-            }
-            ui.add_space(6.0);
-            ui.vertical(|ui| {
-                let line = |ui: &mut Ui, text: RichText| ui.add(egui::Label::new(text).truncate());
-                line(ui, RichText::new(&inst.name).font(crate::design::fonts::bold(t.body_size() * 1.6)).color(t.fg_light));
-                let mut sub = egui::text::LayoutJob::default();
-                let push = |job: &mut egui::text::LayoutJob, text: String, color| {
-                    RichText::new(text).color(color).append_to(job, ui.style(), egui::FontSelection::Default, Align::Center)
-                };
-                push(&mut sub, format!("minecraft {}  ·  {}", inst.mc_version, inst.loader.display()), t.fg);
-                if !inst.group.is_empty() {
-                    push(&mut sub, "  ·  ".into(), t.fg);
-                    push(&mut sub, format!("󰉋 {}", inst.group), tint.unwrap_or(t.fg));
-                }
-                if !inst.share_set.is_empty() {
-                    push(&mut sub, format!("  ·  \u{f0c1} {}", inst.share_set), t.fg);
-                }
-                if !inst.world_set.is_empty() {
-                    push(&mut sub, format!("  ·  \u{f0ac} {}", inst.world_set), t.fg);
-                }
-                ui.add(egui::Label::new(sub).truncate());
-                let size = disk.map(w::size_label).unwrap_or_else(|| "measuring…".into());
-                let stats = format!("played {}  ·  last played {}  ·  {size}", instance::format_duration(inst.played_secs), w::ago(inst.last_played));
-                line(ui, RichText::new(stats).color(t.muted));
-            });
-        };
-        if stacked {
-            ui.horizontal(|ui| summary(app, ui));
-            ui.add_space(8.0);
-            // Same left-to-right order as the wide layout shows them.
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::TOP), |ui| buttons(app, ui));
-            });
-        } else {
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
-                    buttons(app, ui);
-                    ui.add_space(12.0);
-                    ui.with_layout(Layout::left_to_right(Align::TOP), |ui| summary(app, ui));
-                });
-            });
-        }
+    header(app, ui, inst);
+    egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: 18, top: 0, bottom: 12 }).show(ui, |ui| {
         super::mod_sets::banner(app, ui, inst);
         ui.add_space(14.0);
-        w::tab_strip(ui, &t, &mut app.inst_tab, &InstTab::ALL);
+        w::tab_strip(ui, &app.t.clone(), &mut app.inst_tab, &InstTab::ALL);
+        // Files dropped now go into this tab's folder: its pane is what the drop hint frames.
+        app.drop_rect = Some(ui.available_rect_before_wrap().expand2(vec2(tk::GUTTER, 12.0)));
 
         match app.inst_tab {
             InstTab::Log => logs::live(app, ui, inst),
@@ -432,6 +374,82 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
             tab => content::show(app, ui, inst, tab.content_kind().unwrap()),
         }
     });
+}
+
+/// The instance page's head: a caption line (the section number, the loader and version, the
+/// icon), the name large with play, edit and folder, then the spec strip.
+fn header(app: &mut App, ui: &mut Ui, inst: &Instance) {
+    let t = app.look.tokens.clone();
+    let disk = app.sizes.get(inst, &app.rt, ui.ctx());
+    let hue = app.groups.color(&inst.group).and_then(|c| t.named(c));
+    let width = ui.available_width();
+    egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: tk::GAP as i8, bottom: tk::GAP as i8 }).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = tk::GAP;
+            kit::caption(ui, &t, "01 / instance");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if caption_link(ui, &t, "change icon").clicked() {
+                    app.modal = Some(Modal::IconPicker(Box::new(super::icon_picker::IconPicker::new(inst.id.clone()))));
+                }
+                kit::caption(ui, &t, &format!("{} · {}", inst.loader.display(), inst.mc_version));
+            });
+        });
+        ui.add_space(tk::UNIT);
+        // Buttons first, from the right, then the name in the room left.
+        let size = if width < 900.0 { tk::SIZE_DISPLAY_SMALL } else { tk::SIZE_DISPLAY };
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), size), Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = tk::GAP;
+            if Button::new("folder").show(ui, &t).clicked() {
+                super::open_path(&inst.game_dir());
+            }
+            if Button::new("edit").show(ui, &t).clicked() {
+                app.modal = Some(Modal::Edit(Box::new(EditState::from(inst))));
+            }
+            if app.is_running(&inst.id) {
+                if Button::new("stop").icon(g::STOP).filled().show(ui, &t).clicked() {
+                    app.kill(&inst.id);
+                }
+            } else if Button::new("play").icon(g::PLAY).filled().show(ui, &t).clicked() {
+                app.launch(ui.ctx(), &inst.id, None);
+            }
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                kit::display(ui, &t, &inst.name, size);
+            });
+        });
+    });
+    let none = "—";
+    let played = instance::format_duration(inst.played_secs);
+    let last = w::ago(inst.last_played);
+    let size = disk.map(w::size_label).unwrap_or_else(|| "measuring".into());
+    let group = if inst.group.is_empty() { none } else { &inst.group };
+    let share = if inst.share_set.is_empty() { none } else { &inst.share_set };
+    let worlds = if inst.world_set.is_empty() { none } else { &inst.world_set };
+    // The group and the sets are set in edit, so those cells lead there.
+    let cells = [
+        Spec::new("minecraft", &inst.mc_version),
+        Spec::new("group", group).link().hue(hue.filter(|_| !inst.group.is_empty())),
+        Spec::new("share set", share).link(),
+        Spec::new("world set", worlds).link(),
+        Spec::new("played", &played),
+        Spec::new("last played", &last),
+        Spec::new("on disk", &size),
+    ];
+    // As many cells as fit, about 110px each; the first ones matter most.
+    let fit = ((width / 110.0) as usize).clamp(3, cells.len());
+    if kit::spec_strip(ui, &t, &cells[..fit]).is_some() {
+        app.modal = Some(Modal::Edit(Box::new(EditState::from(inst))));
+    }
+}
+
+/// A caption that leads somewhere: muted, accent when hovered.
+fn caption_link(ui: &mut Ui, t: &tk::Tokens, text: &str) -> egui::Response {
+    let g = kit::text::caption_galley(ui, text, t.text_muted);
+    let (rect, resp) = ui.allocate_exact_size(g.size(), Sense::click());
+    let c = crate::design::motion::color(ui.ctx(), resp.id, resp.hovered() || resp.has_focus(), t.text_muted, t.accent);
+    kit::text::paint_caption(ui.painter(), rect.left_center(), text, c);
+    let label = text.to_string();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, &label));
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn notes(app: &mut App, ui: &mut Ui, inst: &Instance) {
@@ -519,7 +537,7 @@ pub fn edit(app: &mut App, s: &mut EditState, ui: &mut Ui) -> EditOutcome {
     let t = app.t.clone();
     let activate = app.modal_nav() == Some(Nav::Activate);
     ui.set_width(520.0);
-    w::heading(ui, &t, "edit instance");
+    w::heading(ui, &t, "Edit instance");
     ui.add_space(10.0);
 
     let field_w = 340.0;

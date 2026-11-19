@@ -58,7 +58,7 @@ pub fn show(app: &mut App, s: &mut GroupManager, ui: &mut Ui) -> bool {
         s.select(None);
     }
 
-    w::heading(ui, &t, "groups");
+    w::heading(ui, &t, "Groups");
     ui.add_space(10.0);
     let mut close = false;
 

@@ -199,7 +199,7 @@ pub fn set_version_dialog(app: &mut App, s: &SetVersion, ui: &mut Ui) -> bool {
     let t = app.t.clone();
     let activate = app.modal_nav() == Some(Nav::Activate);
     ui.set_width(460.0);
-    w::heading(ui, &t, "change the world set's version?");
+    w::heading(ui, &t, "Change the world set's version?");
     ui.add_space(8.0);
     let what = if s.loader == Loader::Vanilla { s.mc.clone() } else { format!("{} with {}", s.mc, s.loader.display()) };
     w::para(

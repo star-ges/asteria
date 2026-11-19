@@ -33,7 +33,8 @@ pub fn entrance_with(ui: &Ui, id: egui::Id, motion: Motion) -> f32 {
 }
 
 /// A sheet over `rect` (the content area): it covers what's under it with the background,
-/// shows a numbered caption and a heading, then `body`. Returns what `body` returns.
+/// shows a numbered caption and a heading (either may be empty), then `body`. Returns what
+/// `body` returns.
 pub fn sheet<R>(ui: &mut Ui, t: &Tokens, rect: Rect, id: egui::Id, caption: &str, title: &str, body: impl FnOnce(&mut Ui) -> R) -> R {
     let rise = entrance(ui, id);
     // Block the pointer from the panes under it.
@@ -47,9 +48,13 @@ pub fn sheet<R>(ui: &mut Ui, t: &Tokens, rect: Rect, id: egui::Id, caption: &str
             text::caption(ui, t, caption);
             ui.add_space(tk::UNIT);
         }
-        text::heading(ui, t, title);
-        ui.add_space(tk::GAP);
-        body(ui)
+        if !title.is_empty() {
+            text::heading(ui, t, title);
+            ui.add_space(tk::GAP);
+        }
+        // A Ui of its own: a body that sets its height (`set_height`) would otherwise move
+        // the cursor back over the caption.
+        ui.scope(body).inner
     });
     out.inner
 }
@@ -60,14 +65,24 @@ pub enum StripAnswer {
     Cancel,
 }
 
-/// A confirmation at the foot of a pane: a sentence in `text_strong`, then the action (in the
-/// error colour) and cancel. Enter and Esc go through the caller's `modal_nav`, like the buttons.
-pub fn strip(ui: &mut Ui, t: &Tokens, id: egui::Id, sentence: &str, action: &str) -> Option<StripAnswer> {
+/// A confirmation at the foot of a pane: a caption (what's being done) over a sentence in
+/// `text_strong`, wrapping beside the buttons, then the action (filled with the error colour)
+/// and cancel. Enter and Esc go through the caller's `modal_nav`, like the buttons.
+pub fn strip(ui: &mut Ui, t: &Tokens, id: egui::Id, caption: &str, sentence: &str, action: &str) -> Option<StripAnswer> {
     let rise = entrance(ui, id);
-    let h = tk::BUTTON_HEIGHT + tk::GAP * 2.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+    let width = ui.available_width();
+    let buttons = Button::new("cancel").width(ui, t) + Button::new(action).width(ui, t) + tk::GAP * 2.0;
+    let text_w = (width - tk::GUTTER * 2.0 - buttons).max(120.0);
+    let mut job = egui::text::LayoutJob::simple(sentence.to_string(), fonts::text(tk::SIZE_BODY), t.text_strong, text_w);
+    job.wrap.max_rows = 4;
+    let g = ui.painter().layout_job(job);
+    let cap = (!caption.is_empty()).then(|| text::caption_galley(ui, caption, t.text_muted));
+    let cap_h = cap.as_ref().map_or(0.0, |c| c.size().y + tk::UNIT / 2.0);
+    let h = (cap_h + g.size().y).max(tk::BUTTON_HEIGHT) + tk::GAP * 2.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
     let mut answer = None;
-    ui.scope_builder(UiBuilder::new().max_rect(rect.shrink2(vec2(tk::GUTTER, 0.0))).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+    let inner = rect.shrink2(vec2(tk::GUTTER, 0.0));
+    ui.scope_builder(UiBuilder::new().max_rect(inner).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
         ui.multiply_opacity(rise);
         ui.spacing_mut().item_spacing.x = tk::GAP;
         if Button::new("cancel").show(ui, t).clicked() {
@@ -76,11 +91,17 @@ pub fn strip(ui: &mut Ui, t: &Tokens, id: egui::Id, sentence: &str, action: &str
         if Button::new(action).danger().show(ui, t).clicked() {
             answer = Some(StripAnswer::Confirm);
         }
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            ui.add(egui::Label::new(egui::RichText::new(sentence).font(fonts::text(tk::SIZE_BODY)).color(t.text_strong)).truncate());
-        });
     });
-    rule::hline(ui.painter(), rect.x_range(), rect.top() + 0.5, t.line_strong);
+    let p = ui.painter();
+    let top = rect.center().y - (cap_h + g.size().y) / 2.0;
+    let a = |c| tk::alpha_of(c, rise);
+    if let Some(c) = cap {
+        p.galley(egui::pos2(inner.left(), top), c, a(t.text_muted));
+    }
+    p.galley(egui::pos2(inner.left(), top + cap_h), g, a(t.text_strong));
+    rule::hline(p, rect.x_range(), rect.top() + 0.5, t.line_strong);
+    let label = format!("{caption}: {sentence}");
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
     answer
 }
 
@@ -206,10 +227,12 @@ pub fn spec_strip(ui: &mut Ui, t: &Tokens, cells: &[Spec]) -> Option<usize> {
         let hot = c.link && resp.hovered();
         let cap_c = motion::color(ui.ctx(), resp.id.with("cap"), hot, t.text_muted, t.accent);
         let val_c = motion::color(ui.ctx(), resp.id.with("val"), hot, c.hue.unwrap_or(t.text_strong), t.accent);
-        let x = r.left() + tk::GAP;
+        // The first cell's text sits on the page's gutter, so it lines up with what's above.
+        let inset = if i == 0 { tk::GUTTER } else { tk::GAP };
+        let x = r.left() + inset;
         let cap = text::caption_galley(ui, c.caption, cap_c);
         let mut job = egui::text::LayoutJob::simple_singleline(c.value.to_string(), fonts::text(tk::SIZE_BODY), val_c);
-        job.wrap.max_width = r.width() - tk::GAP * 2.0;
+        job.wrap.max_width = r.width() - inset - tk::GAP;
         job.wrap.max_rows = 1;
         let val = p.layout_job(job);
         let total = cap.size().y + tk::UNIT / 2.0 + val.size().y;
@@ -259,4 +282,30 @@ pub fn empty_state(ui: &mut Ui, t: &Tokens, title: &str, hint: &str, action: Opt
 pub fn loading(ui: &mut Ui, t: &Tokens, what: &str) -> Response {
     ui.add_space(tk::GUTTER);
     text::caption(ui, t, what)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Old dialogs size themselves (`set_height`) inside a sheet; egui moves a Ui's cursor back
+    /// to its top when its height is set, so the body must have a Ui of its own or it's drawn
+    /// over the sheet's caption.
+    #[test]
+    fn a_sheet_body_that_sets_its_height_stays_under_the_caption() {
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            crate::design::test_frame(&ctx, 0.0, |ui| {
+                let t = Tokens::new(false);
+                let rect = Rect::from_min_size(egui::pos2(0.0, 100.0), vec2(800.0, 600.0));
+                let (before, after) = sheet(ui, &t, rect, egui::Id::new("test-sheet"), "01 / instances · edit", "", |ui| {
+                    let before = ui.cursor().top();
+                    ui.set_height(300.0);
+                    (before, ui.cursor().top())
+                });
+                // The body goes on where the caption left off, never back up over it.
+                assert!(after >= before, "the body's cursor moved up from {before} to {after}");
+            });
+        }
+    }
 }

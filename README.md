@@ -78,12 +78,12 @@ To remove it, delete those three files; your data is in `~/.local/share/asteria`
   sure it is, quoting the lines in the crash report or log that say so. Unmet dependencies, failed mixins,
   mods for the wrong loader or Java, and out-of-memory or graphics-driver crashes are explained in plain
   words. Disable the suspect right there, or copy a summary for a bug report.
-- **Find the breaking mod**: `b` in the mods tab (or the crash analysis) turns about half the mods off at
+- **Find breaking mod**: `b` in the mods tab (or the crash analysis) turns about half the mods off at
   a time, always keeping each mod's dependencies on. You play and say whether the problem occurred, and a
   few games later Asteria names the mod, then puts everything back exactly as it was, even after a crash
   halfway through.
 
-  ![Find the breaking mod](docs/screenshots/find%20the%20breaking%20mod.png)
+  ![Find breaking mod](docs/screenshots/find%20the%20breaking%20mod.png)
 
 - **Updates you can undo**: `u` in the mods tab updates every mod from Modrinth, `shift+u` just one. Before
   anything changes, Asteria backs up `mods`, `config` and any world without a recent backup. `z` rolls the

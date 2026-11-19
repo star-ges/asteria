@@ -61,7 +61,7 @@ pub fn show(app: &mut App, s: &mut ExportDialog, ui: &mut Ui) -> Option<Result<R
     }
 
     ui.horizontal(|ui| {
-        w::heading(ui, &t, "export instance");
+        w::heading(ui, &t, "Export instance");
         ui.add_space(16.0);
         w::segmented(ui, &t, &mut s.format, &[(Format::Mrpack, "modrinth pack"), (Format::Zip, "instance zip")]);
     });

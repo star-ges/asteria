@@ -347,7 +347,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, inst: &Instance, found: Option<(&[Entry],
     let (mut update, mut revert, mut find) = (false, false, false);
     ui.horizontal(|ui| {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            find = w::button(ui, &format!("{SEARCH} find the breaking mod…")).on_hover_text("turn mods off half at a time to find the one causing a problem").clicked();
+            find = w::button(ui, &format!("{SEARCH} find breaking mod…")).on_hover_text("turn mods off half at a time to find the one causing a problem").clicked();
             open |= w::button(ui, "sets…").clicked();
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
@@ -549,7 +549,7 @@ pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
         _ => Vec::new(),
     };
 
-    w::heading(ui, &t, "mod sets");
+    w::heading(ui, &t, "Mod sets");
     ui.add_space(4.0);
     w::para(ui, RichText::new(format!("Named arrangements of {}'s mods: tick a set's mods on the right. Switching to a set turns mods on and off; nothing is removed.", inst.name)).color(t.muted));
     ui.add_space(10.0);
@@ -959,7 +959,7 @@ fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
     }
     let testing = s.rows.iter().filter(|r| r.mark == Mark::Test).count();
 
-    w::heading(ui, &t, "find the breaking mod");
+    w::heading(ui, &t, "Find breaking mod");
     ui.add_space(6.0);
     w::para(ui, "Asteria turns about half the mods off at a time. You play, then say whether the problem occurred, and the suspects halve each time.");
     ui.add_space(4.0);
@@ -1015,7 +1015,7 @@ fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
         }
         let of = |m: Mark| s.rows.iter().filter(|r| r.mark == m).map(|r| r.file.clone()).collect::<Vec<_>>();
         let opts = bisect::Start { keep: of(Mark::Keep), good: of(Mark::Fine), first: s.rows.iter().filter(|r| r.first).map(|r| r.file.clone()).collect() };
-        job(app, &ctx, &inst, "finding the breaking mod", move |i| {
+        job(app, &ctx, &inst, "finding breaking mod", move |i| {
             let b = bisect::start(i, &opts)?;
             let on = b.step.as_ref().map_or(0, |s| s.on.len());
             Ok(format!("Step 1: {on} of {} mods on. Play, then say whether the problem happened.", b.original.values().filter(|o| **o).count()))
@@ -1027,9 +1027,9 @@ fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
 }
 
 const ANSWERS: [(Answer, &str, &str); 3] = [
-    (Answer::Broken, "problem occurred", "the problem showed up, or the game crashed"),
-    (Answer::Works, "no problem occurred", "the game ran fine"),
-    (Answer::Skip, "can't tell", "try a different half of the mods instead"),
+    (Answer::Broken, "Problem occurred", "the problem showed up, or the game crashed"),
+    (Answer::Works, "Problem did not occur", "the game ran fine"),
+    (Answer::Skip, "Can't tell", "try a different half of the mods instead"),
 ];
 
 fn ask_dialog(app: &mut App, a: &mut AskDialog, ui: &mut Ui) -> bool {
@@ -1043,7 +1043,7 @@ fn ask_dialog(app: &mut App, a: &mut AskDialog, ui: &mut Ui) -> bool {
         a.choice = n;
     }
     let step = b.step.clone();
-    w::heading(ui, &t, "did the problem occur?");
+    w::heading(ui, &t, "Did the problem occur?");
     ui.add_space(6.0);
     let (n, of) = b.progress();
     let on = step.as_ref().map_or(0, |s| s.on.len());
@@ -1086,7 +1086,7 @@ fn answer(app: &mut App, ctx: &egui::Context, inst: &Instance, a: Answer) {
         return;
     }
     let (i, rt) = (inst.clone(), app.rt.clone());
-    let task = Task::new(format!("finding the breaking mod in {}", inst.name));
+    let task = Task::new(format!("finding breaking mod in {}", inst.name));
     task.stage("switching mods", 0);
     let inbox = app.mod_sets.inbox();
     app.content.start_mod_job(&rt, ctx, &inst.id, None, task, async move {
@@ -1226,7 +1226,7 @@ pub fn banner(app: &mut App, ui: &mut Ui, inst: &Instance) {
                     let on = b.step.as_ref().map_or(0, |s| s.on.len());
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(SEARCH).color(color));
-                        ui.label(RichText::new("finding the breaking mod").font(crate::design::fonts::bold(t.body_size())).color(t.fg_light));
+                        ui.label(RichText::new("finding breaking mod").font(crate::design::fonts::bold(t.body_size())).color(t.fg_light));
                         let confirm = b.step.as_ref().is_some_and(|s| s.kind == StepKind::Confirm);
                         let what = if confirm { "checking the last suspect".to_string() } else { format!("{} suspects left", b.suspects.len()) };
                         ui.add(egui::Label::new(RichText::new(format!("step {n} of ~{of}  ·  {what}  ·  {on} of {} mods on", b.original.values().filter(|o| **o).count())).color(t.muted)).truncate());

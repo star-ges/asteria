@@ -11,7 +11,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 16, bottom: 12 }).show(ui, |ui| {
             ui.set_max_width(720.0);
-            w::heading(ui, &t, "settings");
+            w::heading(ui, &t, "Settings");
             ui.add_space(8.0);
             let mut changed = false;
 
