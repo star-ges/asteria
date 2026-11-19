@@ -41,10 +41,10 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 |---|---|
 | `main.rs`, `cli.rs` | tokio runtime; the CLI if there are args, otherwise eframe (decorated: Hyprland draws no title bar, other desktops do) |
 | `paths.rs`, `config.rs` | `~/.local/share/asteria`, `~/.config/asteria/config.toml` (incl. `[keys]`, `collapsed_groups`, `msa_client_id`) |
-| `design/tokens.rs` | Every colour, size, spacing and duration as a named token (StarShell's values): `LIGHT`/`DARK` palettes plus the clarity hues, `Tokens` (the crossfaded palette in use) |
+| `design/tokens.rs` | Every colour, size, spacing and duration as a named token (StarShell's values): `LIGHT`/`DARK` palettes plus the clarity hues and StarShell's code palette (`code_*`, the config text mode only: light has its own clearer set, dark is the terminal's earth tones), `Tokens` (the crossfaded palette in use) |
 | `design/system.rs` | `Look`: follows the XDG portal (`color-scheme`, GNOME's `enable-animations` for reduced motion; D-Bus, watched; winit reports no theme on Wayland) and fontconfig; crossfades light ⇄ dark over 600ms and keeps the old screens' `Theme` in step |
 | `design/fonts.rs`, `design/glyphs.rs`, `design/motion.rs` | Switzer/Melodrama via fontconfig (else `sans-serif`, `FontSet::missing`), bundled Phosphor and JetBrains Mono, the old screens' monospace + Nerd Font; Phosphor names → codepoints; ease-out curves and eased animations that repaint only while moving |
-| `design/kit/*` | The new widget kit (Phase 2): text and icons, rules and section labels, buttons, switch and checkbox, fields, slider and meter, setting groups and rows, quiet table, tiles, bars, sheet/strip/notice/banner and the small blocks (spec strip, bracketed paragraph, empty and loading), `HoverList` with its stars (`row_trail` keeps room for a row's own controls: the mods' switches, Modrinth's install), `QuietRow` (checklists, rows with a control at the right) |
+| `design/kit/*` | The new widget kit (Phase 2): text and icons, rules and section labels, buttons, switch and checkbox, fields, slider and meter, setting groups (foldable heads) and rows (a facts line with a link; rows grow to their control), quiet table, tiles, bars, sheet/strip/notice/banner and the small blocks (spec strip, bracketed paragraph, empty and loading), `HoverList` with its stars (`row_trail` keeps room for a row's own controls: the mods' switches, Modrinth's install), `QuietRow` (checklists, rows with a control at the right) |
 | `design/legacy.rs` | The old screens' `Theme`, made from the tokens' palette; goes with the last old screen |
 | `ui/kit_gallery.rs` | The hidden kit gallery (`ASTERIA_DEBUG_VIEW=kit`): every kit part and the plan's new patterns, light, dark or both |
 | `migrate.rs` | First start: moves Asteria's data and config dirs to Asteria's and links the old names back |
@@ -65,7 +65,7 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 | `ui/nav.rs` | Focus zones, `Nav`, hints bar and `?` help, both built from the keymap |
 | `ui/instances.rs` | The instance list (a compact `HoverList`: groups as numbered `SectionLabel`s, drag-and-drop, context menu, the filter as a query line) beside the selected instance's page: the header (name, play/edit/folder, spec strip), the six sections (`Section`, bar cells) over their views (`InstTab`, the leaves; sub-tabs where a section has several; `[`/`]` step through every leaf), and the overview (components + notes) |
 | `vanilla_options.rs`, `shader_config.rs` | The configs tab's other parts: `options.txt` as named, sectioned fields (`KNOWN` table; unknown keys under "other"); shader pack options read from the pack (`#define`s, `const`s with `// [values]`, `shaders.properties` screens and sliders, `lang/en_us.lang` names), saved to `shaderpacks/<pack>.txt` |
-| `mod_config.rs`, `ui/config.rs` | Configs tab (minecraft · mods · shaders): `config/` files grouped by mod (folding, kept in `<data>/config-view.toml`); TOML (`toml_edit` spans) and JSON/JSON5 (own parser) as fields with comment hints (range, allowed values, default); edits splice only the value's bytes; conflict-checked saves |
+| `mod_config.rs`, `ui/config.rs` | Configs tab (minecraft · mods · shaders): `config/` files grouped by mod (folding, kept in `<data>/config-view.toml`) as a quiet hover list beside the editor (one pane at a time below `CONTENT_TWO_PANES`); TOML (`toml_edit` spans) and JSON/JSON5 (own parser) as fields with comment hints (range, allowed values, default); each header a foldable `SettingGroup`, each field a dense `SettingRow` (facts line, "use default", the unsaved tick); text mode in JetBrains Mono with StarShell's code palette (`code_*` tokens); edits splice only the value's bytes; conflict-checked saves |
 | `mod_sets.rs`, `bisect.rs`, `ui/mod_sets.rs` | Mod sets (`mod_sets.toml`: named on/off arrangements keyed by jar mod id, else versionless file name); the search for the breaking mod (`bisect.toml`: dependency-closed halving, a confirming step, exact restore); the mods tab's set line, sets dialog, search dialogs and banner |
 | `crash.rs` | Crash analysis: suspects from crash reports and logs (loader errors, unmet dependencies, mixins, entrypoints, Suspected Mods, stack frames matched to jars by package), non-mod causes; jar facts cached by path/size/mtime |
 | `ui/{version,content,worlds,servers,screenshots,logs}.rs` | Per-instance tabs (content also has mod updates and the rollback dialogs; worlds has the backups pane; log history has the crash analysis panel) |
@@ -289,9 +289,12 @@ test (and a rule here) with any fix that sets a new one.
   (it saves its own choice on quit). Tests: `vanilla_options::tests`, `shader_config::tests` (incl.
   `profiles_set_their_options_and_are_recognised`, `using_a_pack_changes_only_its_lines`,
   `profiles_include_options_no_screen_shows`, `boolean_constants_are_options_without_an_ifdef`).
-  Widgets must not change a value just by drawing it: sliders use `SliderClamping::Edits`, `DragValue` uses
-  `clamp_existing_to_range(false)`, the kit's `Slider` writes only on a press, drag, wheel or arrow key, and nothing
-  rounds. Tests: `design::kit::slider::tests::drawing_never_changes_the_value`, `mod_config::tests` (incl.
+  Widgets must not change a value just by drawing it: `DragValue` uses `clamp_existing_to_range(false)`, the kit's
+  `Slider` writes only on a press, drag, wheel or arrow key, and nothing rounds a value the user didn't move. A
+  slider only shows for a range of at most 1000 that a float holds exactly (`config::slides`); a float slider's
+  move is written on its step's decimals (`config::to_step`: `0.3`, never `0.30000000000000004`). Tests:
+  `design::kit::slider::tests::drawing_never_changes_the_value`,
+  `ui::config::tests::{drawing_a_setting_never_changes_it, slider_moves_are_written_cleanly}`, `mod_config::tests` (incl.
   `toml_edits_round_trip_byte_for_byte`, `json5_edits_round_trip_byte_for_byte`, `only_files_inside_config_open`,
   `a_file_changed_on_disk_is_not_overwritten`, `untouched_list_items_keep_their_exact_text`,
   `json5_strings_decode_every_escape`, `literal_strings_take_only_what_they_can_hold`), `ui::config::tests`.

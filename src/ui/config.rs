@@ -9,25 +9,25 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use egui::text::{LayoutJob, TextFormat};
-use egui::{Align, CornerRadius, FontId, Layout, Rect, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
+use egui::{Align, Layout, Rect, Sense, Ui, UiBuilder, vec2};
 
 use super::instances::InstTab;
 use super::nav::{Nav, Zone};
-use super::widgets::{self as w, Lead};
+use super::content::padded;
 use super::{App, Confirm, ConfirmAction, Modal, Tab, ToastKind};
 use crate::instance::Instance;
 use crate::keymap::Action;
 use crate::mod_config::{self as mc, Doc, Field, Format, Group, ModInfo, Scalar, Value};
 use crate::{fsutil, paths, shader_config};
 use crate::task::Promise;
-use crate::design::Theme;
+use crate::design::kit::{self, Button, HoverList, HoverRow, SettingGroup, SettingRow, Variant};
+use crate::design::tokens::{self as tk, Tokens};
+use crate::design::{fonts, glyphs};
 
 /// How often the list of files is read again while the tab is open.
 const RELIST: Duration = Duration::from_secs(5);
 /// How often the open file is checked for changes on disk (the game rewrites configs).
 const RECHECK: Duration = Duration::from_secs(2);
-/// Lists longer than this start folded.
-const FOLD_AT: usize = 6;
 /// Text bigger than this is shown without colours (they're worked out every frame).
 const HIGHLIGHT_MAX: usize = 200_000;
 
@@ -404,16 +404,6 @@ pub struct Leave {
     away: Away,
 }
 
-fn glyph(format: Format) -> &'static str {
-    match format {
-        Format::Toml => "\u{e6b2}",
-        Format::Json | Format::Json5 => "\u{e60b}",
-        Format::Text => "\u{f0f6}",
-        Format::Options => "\u{f013}",
-        Format::ShaderSettings => "\u{f05a8}",
-    }
-}
-
 /// Files in list order, as filtered.
 fn visible(groups: &[Group], filter: &str) -> Vec<(usize, Vec<PathBuf>)> {
     let f = filter.trim().to_lowercase();
@@ -496,7 +486,7 @@ fn load_for(area: Area, inst: &Instance, rel: &std::path::Path) -> anyhow::Resul
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
     let running = app.is_running(&inst.id);
     let list_nav = app.nav_for(Zone::Main);
@@ -515,19 +505,30 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
     s.folds();
     let mut out = Out::default();
 
-    // The three parts. Switching shows the file left open there, if any.
+    // The three parts, as the page's sub-tabs. Switching shows the file left open there, if any.
     let mut area = s.area;
-    ui.horizontal(|ui| {
-        w::segmented(ui, &t, &mut area, &Area::ALL);
-        ui.add_space(12.0);
-        let what = match area {
-            Area::Minecraft => "the game's own settings: options.txt",
-            Area::Mods => "each mod's files in config/",
-            Area::Shaders => "each shader pack's options",
-        };
-        ui.add(egui::Label::new(RichText::new(what).color(t.muted)).truncate());
+    // Too narrow for the list and the editor side by side: one at a time, the one with the keyboard.
+    let narrow = area != Area::Minecraft && ui.available_width() < tk::CONTENT_TWO_PANES;
+    let mut side = focus == Zone::Side;
+    padded(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = tk::GAP;
+            kit::segmented(ui, &t, &mut area, &Area::ALL);
+            if narrow {
+                if kit::segmented(ui, &t, &mut side, &[(false, if area == Area::Shaders { "packs" } else { "files" }), (true, "settings")]) {
+                    out.focus = Some(if side { Zone::Side } else { Zone::Main });
+                }
+                return;
+            }
+            let what = match area {
+                Area::Minecraft => "the game's own settings: options.txt",
+                Area::Mods => "each mod's files in config/",
+                Area::Shaders => "each shader pack's options",
+            };
+            ui.add(egui::Label::new(kit::text::caption_job(what, t.text_muted)).selectable(false).truncate());
+        });
     });
-    ui.add_space(10.0);
+    ui.add_space(tk::GAP);
     if key == Some(Action::ConfigArea) {
         area = s.area.next();
     }
@@ -539,11 +540,7 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
         s.cursor = None;
     }
     let Some(listing) = &s.listing else {
-        ui.add_space(20.0);
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label(RichText::new("looking for config files…").color(t.muted));
-        });
+        padded(ui, |ui| kit::loading(ui, &t, "looking for config files"));
         return;
     };
     let groups = listing.groups.clone();
@@ -557,7 +554,7 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
     match s.area {
         Area::Minecraft => {
             if !inst.game_dir().join(OPTIONS).is_file() {
-                w::empty_state(ui, &t, "\u{f013}", "no options yet", "Minecraft writes options.txt the first time it starts. Play once, then come back here.");
+                padded(ui, |ui| kit::empty_state(ui, &t, "No options yet", "Minecraft writes options.txt the first time it starts. Play once, then come back here.", None));
                 return;
             }
             s.selected = Some(PathBuf::from(OPTIONS));
@@ -567,7 +564,7 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
         }
         Area::Mods => {
             if groups.is_empty() {
-                w::empty_state(ui, &t, "\u{f107b}", "no config files yet", "Mods write their settings into config/ the first time the game starts with them. Play once, then come back here.");
+                padded(ui, |ui| kit::empty_state(ui, &t, "No config files yet", "Mods write their settings into config/ the first time the game starts with them. Play once, then come back here.", None));
                 return;
             }
             let shown = visible(&groups, &s.file_filter);
@@ -593,7 +590,7 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
         }
         Area::Shaders => {
             if packs.is_empty() {
-                w::empty_state(ui, &t, "\u{f0eb}", "no shader packs", "Add packs in the shader packs tab; their options show up here.");
+                padded(ui, |ui| kit::empty_state(ui, &t, "No shader packs", "Add packs in mods & packs, under shader packs; their options show up here.", None));
                 return;
             }
             if s.selected.as_ref().is_some_and(|sel| !packs.iter().any(|p| *sel == PathBuf::from(&p.name))) {
@@ -697,130 +694,127 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
         _ => {}
     }
 
-    if area != Area::Minecraft {
-        // Narrow windows give the list less, so the editor keeps room to work.
-        let avail = ui.available_width();
-        let pane_w = if avail < 720.0 { (avail * 0.36).max(150.0) } else { (avail * 0.3).clamp(220.0, 300.0) };
-        egui::Panel::left("config-files").exact_size(pane_w).resizable(false).frame(egui::Frame::new().inner_margin(egui::Margin { right: 14, ..Default::default() })).show(ui, |ui| {
+    // The file list on the left (not for Minecraft's one file), the editor on the right, a strong
+    // hairline between; both panes run from their edges, so rows reach the line.
+    let full = ui.available_rect_before_wrap();
+    let edit_rect = if area == Area::Minecraft || (narrow && side) {
+        full
+    } else if narrow {
+        ui.scope_builder(UiBuilder::new().max_rect(full).layout(Layout::top_down(Align::Min)), |ui| {
             if area == Area::Shaders {
                 packs_pane(ui, &t, s, &packs, &icons, focus == Zone::Main, &mut out);
             } else {
                 files_pane(ui, &t, s, &inst.id, &groups, &items, list_nav == Some(Nav::Search), focus == Zone::Main, &mut out);
             }
         });
-    }
+        ui.allocate_rect(full, Sense::hover());
+        apply(app, out);
+        return;
+    } else {
+        let w = (full.width() * tk::CONFIG_FILES_SHARE).clamp(tk::CONFIG_FILES_MIN, tk::CONFIG_FILES_MAX).min(full.width() * 0.45).floor();
+        let line_x = full.left() + w;
+        let left = Rect::from_min_max(full.min, egui::pos2(line_x, full.bottom()));
+        ui.scope_builder(UiBuilder::new().max_rect(left).layout(Layout::top_down(Align::Min)), |ui| {
+            if area == Area::Shaders {
+                packs_pane(ui, &t, s, &packs, &icons, focus == Zone::Main, &mut out);
+            } else {
+                files_pane(ui, &t, s, &inst.id, &groups, &items, list_nav == Some(Nav::Search), focus == Zone::Main, &mut out);
+            }
+        });
+        kit::vline(ui.painter(), line_x, full.y_range(), t.line_strong);
+        Rect::from_min_max(egui::pos2(line_x + tk::LINE, full.top()), full.max)
+    };
+    let number = if area == Area::Minecraft { 1 } else { 2 };
 
     // The pack in use, switched here as the game's shader menu would (Iris's or OptiFine's own file).
     let pack = (area == Area::Shaders).then(|| {
         let sel = s.selected.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
         let why = match (switch, running) {
-            (None, _) => Some("no shader mod (Iris or OptiFine) in this instance"),
-            (_, true) => Some("close the game first: it saves its own choice when it quits"),
+            (None, _) => Some("There's no shader mod (Iris or OptiFine) in this instance."),
+            (_, true) => Some("Close the game first: it saves its own choice when it quits."),
             _ => None,
         };
         PackSwitch { active: packs.iter().any(|p| p.name == sel && p.active), why, optifine: switch == Some(shader_config::Switch::OptiFine), name: sel }
     });
-    match (&mut s.open, &s.load_error) {
+    // The open file's group: the mod it belongs to, for the first settings group's title.
+    let base_title = match area {
+        Area::Minecraft => "Options".to_string(),
+        Area::Shaders => "Main screen".to_string(),
+        Area::Mods => s.selected.as_ref().and_then(|sel| groups.iter().find(|g| g.files.iter().any(|f| f.rel == *sel))).filter(|g| g.name != mc::OTHER).map(|g| g.name.clone()).unwrap_or_else(|| "Settings".into()),
+    };
+    ui.scope_builder(UiBuilder::new().max_rect(edit_rect).layout(Layout::top_down(Align::Min)), |ui| match (&mut s.open, &s.load_error) {
         (Some(o), _) if s.selected.as_ref() == Some(&o.rel) && o.area == area && o.inst_id == inst.id => {
             let folds = s.folds.get_or_insert_with(Default::default);
             let cooling = s.capture_ended.is_some_and(|e| e.elapsed() < Duration::from_millis(400));
-            let st = EditorState { pack: pack.as_ref(), folds, field_filter: &mut s.field_filter, field_sel: &mut s.field_sel, scroll_field: &mut s.scroll_field, unfolded: &mut s.unfolded, capture: s.capture.as_deref(), cooling };
+            let st = EditorState { pack: pack.as_ref(), folds, field_filter: &mut s.field_filter, field_sel: &mut s.field_sel, scroll_field: &mut s.scroll_field, unfolded: &mut s.unfolded, capture: s.capture.as_deref(), cooling, number, base_title: &base_title };
             editor(ui, &t, o, st, running, edit_nav, editor_focused, &mut out);
         }
         (_, Some((a, rel, e))) if *a == area && s.selected.as_ref() == Some(rel) => {
-            let what = if area == Area::Shaders { "can't read this pack's options" } else { "can't open this file" };
-            w::empty_state(ui, &t, "\u{f05d6}", what, e);
+            head(ui, &t, &format!("{} / {}", kit::text::number(number), rel.display()), "can't open");
+            let what = if area == Area::Shaders { "Can't read this pack's options" } else { "Can't open this file" };
+            padded(ui, |ui| kit::empty_state(ui, &t, what, e, None));
         }
         (Some(o), _) if o.dirty() && s.selected.is_some() => {
+            head(ui, &t, &format!("{} / settings", kit::text::number(number)), "");
             let name = o.rel.display().to_string();
-            w::empty_state(ui, &t, "\u{f0193}", "unsaved changes elsewhere", &format!("{name} has unsaved changes. Save or discard them there first."));
+            padded(ui, |ui| kit::empty_state(ui, &t, "Unsaved changes elsewhere", &format!("{name} has unsaved changes. Save or discard them there first."), None));
         }
-        _ if s.selected.is_none() => match area {
-            Area::Shaders => w::empty_state(ui, &t, "\u{f0eb}", "pick a shader pack", "Its options show here, named and grouped as in the game's shader menu."),
-            _ => w::empty_state(ui, &t, "\u{f107b}", "pick a config file", "Mods are listed on the left. Open one to see its config files, then pick a file to edit its settings."),
-        },
-        _ => {
-            ui.add_space(20.0);
-            ui.horizontal(|ui| {
-                ui.spinner();
-                if area == Area::Shaders {
-                    ui.label(RichText::new("reading the pack's options…").color(t.muted));
-                }
+        _ if s.selected.is_none() => {
+            head(ui, &t, &format!("{} / settings", kit::text::number(number)), "");
+            padded(ui, |ui| match area {
+                Area::Shaders => kit::empty_state(ui, &t, "Pick a shader pack", "Its options show here, named and grouped as in the game's shader menu.", None),
+                _ => kit::empty_state(ui, &t, "Pick a config file", "Mods are listed on the left. Open one to see its config files, then pick a file to edit its settings.", None),
             });
         }
-    }
+        _ => {
+            let name = s.selected.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
+            head(ui, &t, &format!("{} / {name}", kit::text::number(number)), "");
+            padded(ui, |ui| kit::loading(ui, &t, if area == Area::Shaders { "reading the pack's options" } else { "reading the file" }));
+        }
+    });
+    ui.allocate_rect(full, Sense::hover());
 
     apply(app, out);
 }
 
-/// A shader pack: its icon (as the shader packs tab shows it), its name on up to three lines with "in use" under it
-/// for the pack switched on, and a note on the right.
-fn pack_row(ui: &mut Ui, t: &Theme, selected: bool, active: bool, icon: Option<&std::path::Path>, name: &str, right: &str) -> egui::Response {
-    let size = t.body_size();
+/// A pane's head: `01 / FILES · 84` on the left, a strong rule under. Both panes' heads are this
+/// tall, so their rules are one line.
+fn head(ui: &mut Ui, t: &Tokens, label: &str, aside: &str) {
+    let text = if aside.is_empty() { label.to_string() } else { format!("{label} · {aside}") };
     let width = ui.available_width();
-    let p = ui.painter();
-    let note = (!right.is_empty()).then(|| p.layout_no_wrap(right.to_string(), FontId::monospace(size - 1.0), t.accent));
-    let note_w = note.as_ref().map_or(0.0, |g| g.size().x + 12.0);
-    let icon_size = size * 2.0;
-    let text_x = 10.0 + icon_size + 10.0;
-    let mut job = LayoutJob::single_section(name.to_string(), TextFormat::simple(FontId::monospace(size), if selected { t.menu_selected_text } else { t.fg }));
-    job.wrap = egui::text::TextWrapping { max_width: (width - text_x - note_w - 10.0).max(40.0), max_rows: 3, break_anywhere: false, overflow_character: Some('…') };
-    let g = p.layout_job(job);
-    let tag = active.then(|| p.layout_no_wrap("● in use".to_string(), FontId::monospace(size - 2.0), t.green));
-    let tag_h = tag.as_ref().map_or(0.0, |g| g.size().y + 2.0);
-    let h = (g.size().y + tag_h + 16.0).max(icon_size + 14.0);
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, h), Sense::click());
-    if ui.is_rect_visible(rect) {
-        let p = ui.painter();
-        if selected {
-            p.rect(rect, CornerRadius::ZERO, t.fg_a(t.menu_selected_bg_alpha), Stroke::new(1.0, t.fg_a(t.menu_selected_border_alpha)), StrokeKind::Inside);
-        } else if resp.hovered() {
-            p.rect_filled(rect, CornerRadius::ZERO, t.fg_a(t.hover_fill_alpha));
-        }
-        let ir = Rect::from_center_size(egui::pos2(rect.left() + 10.0 + icon_size / 2.0, rect.center().y), vec2(icon_size, icon_size));
-        match icon {
-            Some(path) => {
-                egui::Image::new(egui::ImageSource::Uri(format!("file://{}", path.display()).into())).corner_radius(3.0).paint_at(ui, ir);
-            }
-            // Unzipped packs and packs Modrinth doesn't know: the shader packs tab's own glyph.
-            None => w::glyph_centered(p, ir.center(), "\u{f05a8}", FontId::monospace(size + 2.0), t.muted),
-        }
-        let top = rect.center().y - (g.size().y + tag_h) / 2.0;
-        let gh = g.size().y;
-        p.galley(egui::pos2(rect.left() + text_x, top), g, t.fg);
-        if let Some(tag) = tag {
-            p.galley(egui::pos2(rect.left() + text_x, top + gh + 2.0), tag, t.green);
-        }
-        if let Some(n) = note {
-            let (nw, nh) = (n.size().x, n.size().y);
-            p.galley(egui::pos2(rect.right() - 10.0 - nw, rect.center().y - nh / 2.0), n, t.accent);
-        }
-    }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    let (rect, _) = ui.allocate_exact_size(vec2(width, tk::SECTION_LABEL_HEIGHT), Sense::hover());
+    let g = ui.painter().layout_job(kit::text::caption_wrapped(&text, t.text_muted, (width - tk::GUTTER * 2.0).max(40.0), 1));
+    ui.painter().galley(egui::pos2(rect.left() + tk::GUTTER, rect.center().y - g.size().y / 2.0), g, t.text_muted);
+    kit::rule::hline(ui.painter(), rect.x_range(), rect.bottom() - 0.5, t.line_strong);
 }
 
 /// The shader packs, the one in use marked.
-fn packs_pane(ui: &mut Ui, t: &Theme, s: &mut ConfigState, packs: &[shader_config::Pack], icons: &HashMap<String, PathBuf>, focused: bool, out: &mut Out) {
-    let r = ui.max_rect();
-    ui.painter().vline(r.right() + 7.0, r.y_range(), Stroke::new(1.0, t.fg_a(0.12)));
+fn packs_pane(ui: &mut Ui, t: &Tokens, s: &mut ConfigState, packs: &[shader_config::Pack], icons: &HashMap<String, PathBuf>, focused: bool, out: &mut Out) {
+    head(ui, t, "01 / packs", &packs.len().to_string());
     let open_dirty = s.open.as_ref().filter(|o| o.dirty() && o.area == Area::Shaders).map(|o| o.rel.clone());
     let scroll = std::mem::take(&mut s.scroll_file);
+    let any_icon = packs.iter().any(|p| icons.contains_key(&p.name));
     egui::ScrollArea::vertical().id_salt("shader-packs").auto_shrink(false).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 1.0;
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let mut list = HoverList::begin(ui, Variant::Quiet);
         for p in packs {
             let rel = PathBuf::from(&p.name);
             let item = Item::File(rel.clone());
-            let on = s.selected.as_ref() == Some(&rel);
             let at = s.cursor.as_ref() == Some(&item);
-            // Pack names are long and alike ("ComplementaryReimagined_r5.8.1 + EuphoriaPatches_1.9.3"): up to two
-            // lines, broken between words.
+            // Pack names are long and alike ("ComplementaryReimagined_r5.8.1 + EuphoriaPatches_1.9.3").
             let shown = p.name.strip_suffix(".zip").or_else(|| p.name.strip_suffix(".ZIP")).unwrap_or(&p.name).replace('_', " ");
-            let dot = if open_dirty.as_ref() == Some(&rel) { "●" } else { "" };
-            let hover = if p.active { format!("{}\nin use", p.name) } else { p.name.clone() };
-            let r = pack_row(ui, t, on, p.active, icons.get(&p.name).map(|p| p.as_path()), &shown, dot).on_hover_text(hover);
-            if at && focused {
-                w::focus_mark(ui, t, r.rect);
+            let mut row = HoverRow::new(("shader-pack", &p.name), &shown).selected(s.selected.as_ref() == Some(&rel)).hot(at && focused);
+            row = match icons.get(&p.name) {
+                Some(path) => row.lead(super::content::file_image(path)),
+                None if any_icon => row.lead_blank(),
+                None => row,
+            };
+            if open_dirty.as_ref() == Some(&rel) {
+                row = row.badge("unsaved", t.accent);
+            } else if p.active {
+                row = row.badge("in use", t.ok());
             }
+            let r = list.row(ui, t, row).on_hover_text(&p.name);
             if at && scroll {
                 r.scroll_to_me(None);
             }
@@ -833,6 +827,7 @@ fn packs_pane(ui: &mut Ui, t: &Theme, s: &mut ConfigState, packs: &[shader_confi
                 out.focus = Some(Zone::Side);
             }
         }
+        list.end(ui);
     });
 }
 
@@ -977,59 +972,63 @@ fn save(app: &mut App, force: bool) -> bool {
 // -- the file list ----------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
-fn files_pane(ui: &mut Ui, t: &Theme, s: &mut ConfigState, inst_id: &str, groups: &[Group], items: &[Item], focus_filter: bool, focused: bool, out: &mut Out) {
-    let r = ui.max_rect();
-    ui.painter().vline(r.right() + 7.0, r.y_range(), Stroke::new(1.0, t.fg_a(0.12)));
-    let resp = w::text_input(ui, &mut s.file_filter, "/ filter files or mods", ui.available_width(), focus_filter);
+fn files_pane(ui: &mut Ui, t: &Tokens, s: &mut ConfigState, inst_id: &str, groups: &[Group], items: &[Item], focus_filter: bool, focused: bool, out: &mut Out) {
+    let total: usize = groups.iter().map(|g| g.files.len()).sum();
+    head(ui, t, "01 / files", &total.to_string());
+    // The filter takes over the list's head as a query line, as on the instance list.
+    let resp = padded(ui, |ui| kit::query(ui, t, &mut s.file_filter, "filter", tk::SIZE_HEADING, focus_filter));
     if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         s.file_filter.clear();
         resp.surrender_focus();
     }
-    ui.add_space(6.0);
     let open_dirty = s.open.as_ref().filter(|o| o.dirty()).map(|o| o.rel.clone());
     let scroll = std::mem::take(&mut s.scroll_file);
-    let filtering = !s.file_filter.trim().is_empty();
+    // Icons where some mods have them; the others keep their room, so names line up.
+    let any_icon = groups.iter().any(|g| g.icon.is_some());
     egui::ScrollArea::vertical().id_salt("config-files").auto_shrink(false).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 1.0;
+        ui.spacing_mut().item_spacing.y = 0.0;
         if items.is_empty() {
-            ui.add_space(8.0);
-            ui.label(RichText::new("nothing matches").color(t.muted));
+            padded(ui, |ui| {
+                ui.add_space(tk::GAP);
+                kit::body_muted(ui, t, "Nothing matches.");
+            });
         }
+        let mut list = HoverList::begin(ui, Variant::Quiet);
         for item in items {
             let at = s.cursor.as_ref() == Some(item);
-            let r = match item {
+            match item {
                 Item::Group(name) => {
                     let Some(g) = groups.iter().find(|g| g.name == *name) else { continue };
-                    let open = filtering || s.is_open(&fold_key(inst_id, &["group", name]));
-                    let r = group_header(ui, t, g, open, at).on_hover_text(format!("{} config files", g.files.len()));
+                    let count = g.files.len().to_string();
+                    let row = with_lead(HoverRow::new(("config-group", name), &g.name).aside(&count).hot(at && focused), g, any_icon);
+                    let r = list.row(ui, t, row).on_hover_text(format!("{} config files", g.files.len()));
+                    if at && scroll {
+                        r.scroll_to_me(None);
+                    }
                     if r.clicked() {
                         s.cursor = Some(item.clone());
                         out.fold = Some(fold_key(inst_id, &["group", name]));
                         out.focus = Some(Zone::Main);
                     }
-                    r
                 }
                 Item::File(rel) => {
                     let on = s.selected.as_ref() == Some(rel);
-                    let file = rel.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                    let dot = if open_dirty.as_ref() == Some(rel) { "●  " } else { "" };
                     // A mod with one file: the mod's own row (the file's path is on hover).
                     let single = groups.iter().find(|g| g.files.len() == 1 && g.files[0].rel == *rel);
-                    let r = match single {
-                        Some(g) => {
-                            let lead = match &g.icon {
-                                Some(p) => Lead::Image(egui::ImageSource::Uri(format!("file://{}", p.display()).into())),
-                                None => Lead::Glyph(if g.name == mc::OTHER { "\u{f0224}" } else { "\u{f107b}" }),
-                            };
-                            w::lead_row(ui, t, on, lead, &g.name, dot.trim(), None)
-                        }
-                        // Under its mod's heading, indented; the file's name is enough (the path is on hover).
-                        None => {
-                            let fmt = Format::of(rel).unwrap_or(Format::Text);
-                            egui::Frame::new().inner_margin(egui::Margin { left: 18, ..Default::default() }).show(ui, |ui| w::lead_row(ui, t, on, Lead::Glyph(glyph(fmt)), &file, dot.trim(), None)).inner
-                        }
+                    let title = single.map_or_else(|| rel.file_name().unwrap_or_default().to_string_lossy().into_owned(), |g| g.name.clone());
+                    let mut row = HoverRow::new(("config-file", rel), &title).selected(on).hot(at && focused);
+                    row = match single {
+                        Some(g) => with_lead(row, g, any_icon),
+                        // Under its mod's heading, a step in (past the heading's icon, where there are icons).
+                        None => row.depth(if any_icon { 2 } else { 1 }),
+                    };
+                    if open_dirty.as_ref() == Some(rel) {
+                        row = row.badge("unsaved", t.accent);
                     }
-                    .on_hover_text(rel.to_string_lossy());
+                    let r = list.row(ui, t, row).on_hover_text(rel.to_string_lossy());
+                    if at && scroll {
+                        r.scroll_to_me(None);
+                    }
                     if r.clicked() {
                         s.cursor = Some(item.clone());
                         out.pick = Some(rel.clone());
@@ -1038,56 +1037,20 @@ fn files_pane(ui: &mut Ui, t: &Theme, s: &mut ConfigState, inst_id: &str, groups
                     if r.double_clicked() {
                         out.focus = Some(Zone::Side);
                     }
-                    r
                 }
-            };
-            if at && focused {
-                w::focus_mark(ui, t, r.rect);
-            }
-            if at && scroll {
-                r.scroll_to_me(None);
             }
         }
+        list.end(ui);
     });
 }
 
-/// A mod with several config files: a fold arrow, its icon and name, and how many files.
-fn group_header(ui: &mut Ui, t: &Theme, g: &Group, open: bool, at: bool) -> egui::Response {
-    let size = t.body_size();
-    let h = size + 18.0;
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
-    if ui.is_rect_visible(rect) {
-        if at {
-            ui.painter().rect_filled(rect, 0.0, t.fg_a(t.menu_selected_bg_alpha));
-        } else if resp.hovered() {
-            ui.painter().rect_filled(rect, 0.0, t.fg_a(t.hover_fill_alpha));
-        }
-        let cy = rect.center().y;
-        let mut x = rect.left() + 8.0;
-        let arrow = if open { "\u{f0140}" } else { "\u{f0142}" };
-        ui.painter().text(egui::pos2(x, cy), egui::Align2::LEFT_CENTER, arrow, FontId::monospace(size), t.muted);
-        x += size + 6.0;
-        let icon_size = size + 4.0;
-        match &g.icon {
-            Some(p) => {
-                let r = Rect::from_center_size(egui::pos2(x + icon_size / 2.0, cy), vec2(icon_size, icon_size));
-                egui::Image::new(egui::ImageSource::Uri(format!("file://{}", p.display()).into())).corner_radius(2.0).paint_at(ui, r);
-            }
-            None => {
-                let glyph = if g.name == mc::OTHER { "\u{f0224}" } else { "\u{f107b}" };
-                ui.painter().text(egui::pos2(x, cy), egui::Align2::LEFT_CENTER, glyph, FontId::monospace(size), t.muted);
-            }
-        }
-        x += icon_size + 8.0;
-        let p = ui.painter();
-        // Just the number: the mod's name needs the room.
-        let c = p.layout_no_wrap(g.files.len().to_string(), FontId::monospace(size - 1.0), t.muted);
-        let cw = c.size().x;
-        p.galley(egui::pos2(rect.right() - 10.0 - cw, cy - c.size().y / 2.0), c, t.muted);
-        let clip = Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(rect.right() - 20.0 - cw, rect.bottom()));
-        p.with_clip_rect(clip).text(egui::pos2(x, cy), egui::Align2::LEFT_CENTER, &g.name, FontId::monospace(size), if at { t.menu_selected_text } else { t.fg });
+/// A mod's icon before its name; where other mods have icons and this one hasn't, an empty square keeps its room.
+fn with_lead<'a>(row: HoverRow<'a>, g: &Group, any_icon: bool) -> HoverRow<'a> {
+    match &g.icon {
+        Some(p) => row.lead(super::content::file_image(p)),
+        None if any_icon => row.lead_blank(),
+        None => row,
     }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 // -- the editor -------------------------------------------------------------------
@@ -1101,7 +1064,7 @@ struct PackSwitch {
 }
 
 struct EditorState<'a> {
-    /// For a shader pack: switching to it, on the status line.
+    /// For a shader pack: switching to it, in a banner.
     pack: Option<&'a PackSwitch>,
     /// Open settings headers ([`fold_key`]).
     folds: &'a BTreeSet<String>,
@@ -1113,232 +1076,172 @@ struct EditorState<'a> {
     capture: Option<&'a str>,
     /// A capture just ended (its click mustn't start another).
     cooling: bool,
+    /// The pane's number in its head.
+    number: usize,
+    /// The first settings group's title (the mod, "Options", "Main screen").
+    base_title: &'a str,
+}
+
+/// How many fields differ from the file on disk.
+fn changed_fields(o: &Open) -> usize {
+    o.doc.as_ref().map_or(0, |d| d.fields.iter().filter(|f| o.saved_values.get(&field_id(f)) != Some(&f.value)).count())
 }
 
 #[allow(clippy::too_many_arguments)]
-fn editor(ui: &mut Ui, t: &Theme, o: &mut Open, st: EditorState, running: bool, kb: Option<Nav>, focused: bool, out: &mut Out) {
+fn editor(ui: &mut Ui, t: &Tokens, o: &mut Open, st: EditorState, running: bool, kb: Option<Nav>, focused: bool, out: &mut Out) {
     let dirty = o.dirty();
     let structured = o.format.structured();
     let key = |n: Nav| kb == Some(n);
 
-    let title = |ui: &mut Ui| {
-        ui.label(RichText::new(glyph(o.format)).color(t.muted));
-        let dir = o.rel.parent().map(|p| p.to_string_lossy().into_owned()).filter(|p| !p.is_empty());
-        let mut job = LayoutJob::default();
-        if let Some(d) = dir {
-            job.append(&format!("{d}/"), 0.0, TextFormat::simple(FontId::monospace(t.body_size()), t.muted));
-        }
-        job.append(&o.name(), 0.0, TextFormat::simple(crate::design::fonts::bold(t.body_size()), t.fg_light));
-        ui.add(egui::Label::new(job).truncate());
+    // The head: the file, its format and where it stands (a note from a save or reload takes over for a moment).
+    let note = o.note.as_ref().filter(|(_, at)| at.elapsed() < Duration::from_secs(4)).map(|(n, _)| n.clone());
+    if note.is_some() {
+        ui.ctx().request_repaint_after(Duration::from_millis(500));
+    }
+    let status = match (&note, dirty) {
+        (Some(n), _) => n.clone(),
+        (None, true) => match changed_fields(o) {
+            0 => "unsaved changes".to_string(),
+            1 => "1 unsaved change".to_string(),
+            n => format!("{n} unsaved changes"),
+        },
+        (None, false) => "no changes".to_string(),
     };
-    // Buttons first, so a long name can't run under them. Read left to right: folder, restore defaults, fields/text,
-    // revert, save.
-    let labels = ["  save  ", "revert", "fields", "text", "restore defaults", "folder"];
-    let need = w::buttons_width(ui, &labels) + 14.0;
-    let mut actions = |ui: &mut Ui, ltr: bool| {
-        let mut steps = [0, 1, 2, 3, 4];
-        if ltr {
-            steps.reverse();
-        }
-        for step in steps {
-            // Wrapping can't see a group's width ahead (fields/text is two buttons): break the line first.
-            if ltr {
-                let width = match step {
-                    0 => w::buttons_width(ui, &["  save  "]),
-                    1 => w::buttons_width(ui, &["revert"]),
-                    2 if structured => w::buttons_width(ui, &["fields", "text"]),
-                    3 => w::buttons_width(ui, &["restore defaults"]),
-                    4 => w::buttons_width(ui, &["folder"]),
-                    _ => 0.0,
-                };
-                if width > 0.0 && ui.available_size_before_wrap().x < width && ui.cursor().min.x > ui.max_rect().min.x + 1.0 {
-                    ui.end_row();
-                }
-            }
-            match step {
-                0 => {
-                    if ui.add_enabled_ui(dirty, |ui| w::primary_button(ui, t, "  save  ")).inner.on_hover_text("ctrl+s").clicked() {
-                        out.save = true;
-                    }
-                }
-                1 => {
-                    if ui.add_enabled(dirty, egui::Button::new("revert")).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() || (key(Nav::Delete) && dirty && o.raw_mode()) {
-                        out.revert = true;
-                    }
-                }
-                2 if structured => {
-                    let mut raw = o.raw;
-                    // Right to left, listed backwards; either way it reads "fields  text".
-                    let opts = if ltr { [(false, "fields"), (true, "text")] } else { [(true, "text"), (false, "fields")] };
-                    if w::segmented(ui, t, &mut raw, &opts) {
-                        out.raw = Some(raw);
-                    }
-                }
-                3 => {
-                    // Everything with a known default back to it (nothing is written until save).
-                    let differ = o.doc.as_ref().map_or(0, |d| d.fields.iter().filter(|f| default_value(f).is_some_and(|d| Value::Scalar(d) != f.value)).count());
-                    let known = o.doc.as_ref().is_ok_and(|d| d.fields.iter().any(|f| default_value(f).is_some()));
-                    let hover = if !known { "this file doesn't say what its defaults are".to_string() } else if differ == 0 { "everything is at its default".to_string() } else { format!("put {differ} settings back to their defaults; save to keep it") };
-                    let r = ui.add_enabled(differ > 0 && !o.raw_mode(), egui::Button::new("restore defaults")).on_hover_cursor(egui::CursorIcon::PointingHand);
-                    if r.on_hover_text(&hover).on_disabled_hover_text(&hover).clicked() {
-                        out.defaults = true;
-                    }
-                }
-                4 => {
-                    if w::button(ui, "folder").clicked() || key(Nav::Folder) {
-                        super::open_path(o.path.parent().unwrap_or(&o.path));
-                    }
-                }
-                _ => {}
-            }
-        }
-    };
-    let room = ui.available_width();
-    if room - need >= 280.0 {
-        // Wide: the name beside the buttons.
-        ui.horizontal(|ui| {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                actions(ui, false);
-                ui.add_space(10.0);
-                ui.with_layout(Layout::left_to_right(Align::Center), title);
-            });
-        });
-    } else {
-        // Narrow: the name on its own line, the buttons under it, wrapping when even they don't fit.
-        ui.horizontal(title);
-        ui.add_space(4.0);
-        if room >= need {
-            ui.horizontal(|ui| ui.with_layout(Layout::right_to_left(Align::Center), |ui| actions(ui, false)));
-        } else {
-            ui.horizontal_wrapped(|ui| actions(ui, true));
+    let label = format!("{} / {}", kit::text::number(st.number), o.rel.display());
+    head(ui, t, &label, &format!("{} · {status}", o.format.label()));
+
+    // States that hold the editor for a while, under its head.
+    if let Some(p) = st.pack {
+        let (caption, color, sentence) = match (p.active, p.why) {
+            (_, Some(why)) => (if p.active { "in use" } else { "not in use" }, p.active.then(|| t.ok()), why.to_string()),
+            (true, None) => ("in use", Some(t.ok()), "The game loads this pack.".to_string()),
+            (false, None) => ("not in use", None, format!("{} loads another pack, or none.", if p.optifine { "OptiFine" } else { "Iris" })),
+        };
+        let b = if p.active { Button::new("turn shaders off") } else { Button::new("use this pack") };
+        if kit::banner(ui, t, caption, color, &sentence, &[b.enabled(p.why.is_none())]).is_some() {
+            out.use_pack = Some(if p.active { None } else { Some(p.name.clone()) });
         }
     }
-
-    // One quiet status line: unsaved, saved, reloaded…
-    ui.horizontal(|ui| {
-        let size = t.body_size() - 1.0;
-        let note = o.note.as_ref().filter(|(_, at)| at.elapsed() < Duration::from_secs(4)).map(|(n, _)| n.clone());
-        if dirty {
-            ui.label(RichText::new("● unsaved changes").color(t.accent).size(size));
-        } else if let Some(n) = &note {
-            // A save of text with an error in it is a warning, not a tick.
-            let (glyph, color) = if n.contains("error") { ("\u{f0026}", t.yellow) } else { ("\u{f012c}", t.green) };
-            ui.label(RichText::new(format!("{glyph} {n}")).color(color).size(size));
-        } else {
-            ui.label(RichText::new("no changes").color(t.muted).size(size));
-        }
-        if dirty && let Some(n) = &note {
-            ui.label(RichText::new(format!("·  {n}")).color(t.muted).size(size));
-        }
-        ui.label(RichText::new(format!("·  {}", o.format.label())).color(t.muted).size(size));
-        if let Some(p) = st.pack {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if p.active {
-                    let r = ui.add_enabled(p.why.is_none(), egui::Button::new("turn shaders off")).on_hover_cursor(egui::CursorIcon::PointingHand);
-                    if r.on_disabled_hover_text(p.why.unwrap_or_default()).clicked() {
-                        out.use_pack = Some(None);
-                    }
-                } else {
-                    let hover = if p.optifine { "make it OptiFine's shader pack" } else { "make it Iris's shader pack" };
-                    let r = ui.add_enabled(p.why.is_none(), egui::Button::new("use this pack")).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(hover);
-                    if r.on_disabled_hover_text(p.why.unwrap_or_default()).clicked() {
-                        out.use_pack = Some(Some(p.name.clone()));
-                    }
-                }
-            });
-        }
-        if note.is_some() {
-            ui.ctx().request_repaint_after(Duration::from_millis(500));
-        }
-    });
-
     if running {
-        ui.add_space(4.0);
-        notice(ui, t, t.yellow, "\u{f05d6}", "The game is running. Most mods read their config when the game starts, and some write it back when it quits, so a change here may need a restart, or be overwritten when the game closes.", |_| {});
+        kit::banner(ui, t, "game running", Some(t.warning()), "Most mods read their config when the game starts, and some write it back when it quits, so a change here may need a restart, or be overwritten when the game closes.", &[]);
     }
     if o.conflict.is_some() {
-        ui.add_space(4.0);
-        notice(ui, t, t.orange, "\u{f04e6}", "This file changed on disk while you were editing it; the game rewrites its configs as it starts and quits. Keep your changes (saving replaces the new file), or take the file as it is now?", |ui| {
-            ui.horizontal(|ui| {
-                if w::button(ui, "keep my changes").clicked() {
-                    out.keep_mine = true;
-                }
-                if w::button(ui, "use the file on disk").clicked() {
-                    out.take_disk = true;
-                }
-            });
-        });
+        match kit::banner(ui, t, "changed on disk", Some(t.warning()), "This file changed on disk while you were editing it; the game rewrites its configs as it starts and quits. Keep your changes (saving replaces the new file), or take the file as it is now?", &[Button::new("keep my changes"), Button::new("use the file on disk")]) {
+            Some(0) => out.keep_mine = true,
+            Some(1) => out.take_disk = true,
+            _ => {}
+        }
     }
-    ui.add_space(8.0);
+    let parse_error = if structured && !o.raw_mode() { o.doc.as_ref().err().map(|e| format!("This file doesn't read as {} ({e}), so it can only be edited as text for now.", o.format.label())) } else { None };
+    if let Some(msg) = &parse_error
+        && kit::banner(ui, t, "can't read as fields", Some(t.error()), msg, &[Button::new("edit as text")]).is_some()
+    {
+        out.raw = Some(true);
+    }
+
+    // The toolbar: the settings filter as a query line (level with the file list's), the actions at the right.
+    let fields_shown = !o.raw_mode() && o.doc.as_ref().is_ok_and(|d| !d.fields.is_empty());
+    let differ = o.doc.as_ref().map_or(0, |d| d.fields.iter().filter(|f| default_value(f).is_some_and(|d| Value::Scalar(d) != f.value)).count());
+    // Restoring defaults needs fields that say what theirs are: not for files that are only ever text.
+    let file_buttons: Vec<Button> = if structured { vec![Button::new("folder"), Button::new("restore defaults").enabled(differ > 0 && !o.raw_mode())] } else { vec![Button::new("folder")] };
+    let save_buttons = [Button::new("revert").enabled(dirty), Button::new("save").filled().enabled(dirty)];
+    let mode = [Button::new("fields").checked(!o.raw), Button::new("text").checked(o.raw)];
+    let joined = |bs: &[Button]| bs.iter().map(|b| b.width(ui, t)).sum::<f32>() - (bs.len().saturating_sub(1)) as f32 * tk::LINE;
+    let widths = [joined(&file_buttons), if structured { joined(&mode) } else { 0.0 }, joined(&save_buttons)];
+    let buttons_w = widths[0] + tk::GAP + if structured { widths[1] + tk::GAP } else { 0.0 } + widths[2];
+    let inner = ui.available_rect_before_wrap().shrink2(vec2(tk::GUTTER, 0.0));
+    let beside = inner.width() - buttons_w - tk::GUTTER >= tk::LIST_TITLE_MIN;
+    let query_w = if beside { inner.width() - buttons_w - tk::GUTTER } else { inner.width() };
+    let top = ui.cursor().top();
+    let mut q = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(egui::pos2(inner.left(), top), vec2(query_w, inner.height()))).layout(Layout::top_down(Align::Min)));
+    let query_rect = if fields_shown {
+        let r = kit::query(&mut q, t, st.field_filter, "filter settings", tk::SIZE_HEADING, key(Nav::Search));
+        if r.has_focus() && q.input(|i| i.key_pressed(egui::Key::Escape)) {
+            st.field_filter.clear();
+            r.surrender_focus();
+        }
+        r.rect
+    } else {
+        // The same room, so the buttons hold still between fields and text.
+        let h = q.fonts_mut(|f| f.row_height(&fonts::heading(tk::SIZE_HEADING))) + tk::UNIT * 2.0;
+        let (r, _) = q.allocate_exact_size(vec2(query_w, h), Sense::hover());
+        let what = if o.raw_mode() { "editing as text" } else { "nothing to show as fields" };
+        kit::text::paint_caption(q.painter(), egui::pos2(r.left(), r.center().y), what, t.text_muted);
+        r
+    };
+    // The groups in a row beside the filter, or under it, wrapping a group at a time when even that's too narrow.
+    let row_top = if beside { query_rect.center().y - tk::BUTTON_HEIGHT / 2.0 } else { query_rect.bottom() + tk::GAP };
+    let mut at = egui::pos2(if beside { inner.right() - buttons_w } else { inner.left() }, row_top);
+    let mut place = |w: f32| {
+        if !beside && at.x > inner.left() && at.x + w > inner.right() {
+            at = egui::pos2(inner.left(), at.y + tk::BUTTON_HEIGHT + tk::UNIT);
+        }
+        let r = Rect::from_min_size(at, vec2(w, tk::BUTTON_HEIGHT));
+        at.x += w + tk::GAP;
+        r
+    };
+    let mut group = |r: Rect| ui.new_child(UiBuilder::new().max_rect(r).layout(Layout::left_to_right(Align::Center)));
+    match kit::button_row(&mut group(place(widths[0])), t, &file_buttons) {
+        Some(0) => super::open_path(o.path.parent().unwrap_or(&o.path)),
+        Some(1) if structured => out.defaults = true,
+        _ => {}
+    }
+    if key(Nav::Folder) {
+        super::open_path(o.path.parent().unwrap_or(&o.path));
+    }
+    if structured {
+        let mut raw = o.raw;
+        if kit::segmented(&mut group(place(widths[1])), t, &mut raw, &[(false, "fields"), (true, "text")]) {
+            out.raw = Some(raw);
+        }
+    }
+    match kit::button_row(&mut group(place(widths[2])), t, &save_buttons) {
+        Some(0) => out.revert = true,
+        Some(1) => out.save = true,
+        _ => {}
+    }
+    let last_row = at.y;
+    if key(Nav::Delete) && dirty && o.raw_mode() {
+        out.revert = true;
+    }
+    let bottom = if beside { query_rect.bottom() } else { last_row + tk::BUTTON_HEIGHT };
+    ui.allocate_rect(Rect::from_min_max(egui::pos2(inner.left(), top), egui::pos2(inner.right(), bottom)), Sense::hover());
+    ui.add_space(tk::GAP);
 
     if o.raw_mode() {
-        raw_editor(ui, t, o, key(Nav::Activate) || key(Nav::Edit), focused);
+        padded(ui, |ui| raw_editor(ui, t, o, key(Nav::Activate) || key(Nav::Edit), focused));
         return;
     }
-    let doc = match &o.doc {
-        Ok(d) => d,
-        Err(e) => {
-            let msg = format!("This file doesn't read as {} ({e}), so it can only be edited as text for now.", o.format.label());
-            notice(ui, t, t.red, "\u{f0026}", &msg, |ui| {
-                if w::button(ui, "edit as text").clicked() {
-                    out.raw = Some(true);
-                }
-            });
-            return;
-        }
-    };
+    let Ok(doc) = &o.doc else { return };
     if doc.fields.is_empty() {
-        w::empty_state(ui, t, "\u{f0224}", "no settings to show as fields", "Switch to text to see and edit the whole file.");
+        padded(ui, |ui| kit::empty_state(ui, t, "No settings to show as fields", "Switch to text to see and edit the whole file.", None));
         return;
     }
 
-    // The filter, and how many settings it shows.
+    // Runs of settings that share a header, in the file's order: each a settings group, folded unless
+    // opened (all open while filtering). Settings outside any header are a group that doesn't fold.
     let shown = shown_fields(doc, st.field_filter);
-    ui.horizontal(|ui| {
-        // The count first (right), then the filter in what's left, at most 320.
-        let n = shown.len();
-        let total = doc.fields.len();
-        let text = if n == total { format!("{total} settings") } else { format!("{n} of {total} settings") };
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(text).color(t.muted));
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                let width = (ui.available_width() - 16.0).clamp(60.0, 320.0);
-                let r = w::text_input(ui, st.field_filter, "/ filter settings", width, key(Nav::Search));
-                if r.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    st.field_filter.clear();
-                    r.surrender_focus();
-                }
-            });
-        });
-    });
-    ui.add_space(6.0);
-
-    // The lines: settings outside any header first, then each header, folded unless opened (all open while filtering).
     let filtering = !st.field_filter.trim().is_empty();
     let fold_of = |section: &[String]| fold_key(&o.inst_id, &["section", o.area.key(), &o.rel.to_string_lossy(), &section.join("\u{1e}")]);
-    enum Line<'d> {
-        Header(&'d [String], usize, String),
-        Field(usize, &'d Field, String),
-    }
-    let mut lines: Vec<Line> = Vec::new();
-    let mut last: Option<&[String]> = None;
+    let mut runs: Vec<(&[String], Vec<(usize, &Field)>)> = Vec::new();
     for (n, f) in &shown {
-        let sec = f.section.as_slice();
-        if !sec.is_empty() && last != Some(sec) {
-            let count = shown.iter().filter(|(_, x)| x.section.as_slice() == sec).count();
-            lines.push(Line::Header(sec, count, format!("§{}", sec.join("\u{1e}"))));
-        }
-        last = Some(sec);
-        if sec.is_empty() || filtering || st.folds.contains(&fold_of(sec)) {
-            lines.push(Line::Field(*n, f, field_id(f)));
+        match runs.last_mut() {
+            Some((sec, fs)) if *sec == f.section.as_slice() => fs.push((*n, *f)),
+            _ => runs.push((f.section.as_slice(), vec![(*n, *f)])),
         }
     }
-    let id_of = |l: &Line| match l {
-        Line::Header(_, _, id) | Line::Field(_, _, id) => id.clone(),
-    };
-
-    // Keyboard: move between headers and fields; enter or space on a header folds it.
-    let ids: Vec<String> = lines.iter().map(id_of).collect();
+    let header_id = |sec: &[String]| format!("§{}", sec.join("\u{1e}"));
+    let open = |sec: &[String]| sec.is_empty() || filtering || st.folds.contains(&fold_of(sec));
+    // The keyboard's lines: headers, then their settings when open.
+    let mut ids: Vec<String> = Vec::new();
+    for (sec, fs) in &runs {
+        if !sec.is_empty() {
+            ids.push(header_id(sec));
+        }
+        if open(sec) {
+            ids.extend(fs.iter().map(|(_, f)| field_id(f)));
+        }
+    }
     let mut pos = st.field_sel.as_ref().and_then(|id| ids.iter().position(|x| x == id));
     if pos.is_none() && !ids.is_empty() {
         pos = Some(0);
@@ -1351,12 +1254,14 @@ fn editor(ui: &mut Ui, t: &Theme, o: &mut Open, st: EditorState, running: bool, 
         pos = Some(p);
         *st.scroll_field = true;
     }
-    if let Some(Line::Header(sec, _, _)) = pos.and_then(|p| lines.get(p))
+    let current = pos.and_then(|p| ids.get(p)).cloned().unwrap_or_default();
+    if current.starts_with('§')
         && (key(Nav::Activate) || key(Nav::Toggle))
+        && let Some((sec, _)) = runs.iter().find(|(sec, _)| !sec.is_empty() && header_id(sec) == current)
     {
         out.fold = Some(fold_of(sec));
     }
-    let on_field = pos.is_some_and(|p| matches!(lines.get(p), Some(Line::Field(..))));
+    let on_field = !current.is_empty() && !current.starts_with('§');
     // Key bindings that share a key, by key: each one's row says what else is on it.
     let mut clashes: HashMap<&str, Vec<String>> = HashMap::new();
     for f in &doc.fields {
@@ -1365,52 +1270,43 @@ fn editor(ui: &mut Ui, t: &Theme, o: &mut Open, st: EditorState, running: bool, 
         }
     }
     let focus_widget = on_field && (key(Nav::Activate) || key(Nav::Edit));
-    let wide = ui.available_width() >= 560.0;
-    let key_w = (ui.available_width() * 0.5).clamp(180.0, 440.0);
     let scroll = std::mem::take(st.scroll_field);
+    let saved_values = &o.saved_values;
 
-    {
-        egui::ScrollArea::vertical().id_salt(("config-fields", &o.rel)).auto_shrink(false).show(ui, |ui| {
-            for (row, line) in lines.iter().enumerate() {
-                let selected = pos == Some(row);
-                match line {
-                    Line::Header(sec, count, id) => {
-                        let open = filtering || st.folds.contains(&fold_of(sec));
-                        ui.add_space(if row == 0 { 0.0 } else { 6.0 });
-                        let r = section_header(ui, t, sec, *count, open, selected);
-                        if selected && focused {
-                            w::focus_mark(ui, t, r.rect);
-                        }
-                        if r.clicked() {
-                            *st.field_sel = Some(id.clone());
-                            out.fold = Some(fold_of(sec));
-                            out.focus = Some(Zone::Side);
-                        }
-                        if selected && scroll {
-                            ui.scroll_to_rect(r.rect, Some(Align::Center));
-                        }
-                        if open && let Some(d) = doc.section_doc(sec) {
-                            egui::Frame::new().inner_margin(egui::Margin { left: 26, bottom: 4, top: 2, ..Default::default() }).show(ui, |ui| {
-                                w::para(ui, RichText::new(d).color(t.muted).size(t.body_size() - 1.0));
-                            });
-                        }
+    egui::ScrollArea::vertical().id_salt(("config-fields", &o.rel)).auto_shrink(false).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        for (i, (sec, fs)) in runs.iter().enumerate() {
+            let count = if fs.len() == 1 { "1 setting".to_string() } else { format!("{} settings", fs.len()) };
+            let (title, aside) = match sec.split_last() {
+                Some((last, parents)) if !parents.is_empty() => (last.as_str(), format!("{} · {count}", parents.join(" › "))),
+                Some((last, _)) => (last.as_str(), count),
+                None => (st.base_title, count),
+            };
+            let hid = header_id(sec);
+            let mut group = SettingGroup::new(i + 1, title).aside(&aside).id_salt(("config-group", &hid, i));
+            if !sec.is_empty() {
+                group = group.foldable(open(sec)).hot(current == hid && focused);
+            }
+            let (head, ()) = {
+                let (r, inner) = group.show(ui, t, |ui| {
+                    if let Some(d) = (!sec.is_empty()).then(|| doc.section_doc(sec)).flatten() {
+                        egui::Frame::new().inner_margin(egui::Margin { left: tk::SETTING_INDENT as i8, right: tk::GUTTER as i8, top: 0, bottom: tk::GAP as i8 }).show(ui, |ui| {
+                            ui.set_max_width(tk::SETTING_DESCRIPTION_WIDTH);
+                            kit::body_muted(ui, t, d);
+                        });
                     }
-                    Line::Field(n, f, id) => {
-                        let changed = o.saved_values.get(id) != Some(&f.value);
-                        let capturing = st.capture == Some(id.as_str());
-                        let clash = binding_of(f).and_then(|v| clashes.get(v)).map(|names| names.iter().filter(|n| **n != f.label.as_deref().unwrap_or(&f.key)).cloned().collect()).unwrap_or_default();
-                        let ctx = Row { t, id, selected, focused: selected && focused, changed, wide, key_w, capturing, clash, cooling: st.cooling };
+                    for (n, f) in fs {
+                        let id = field_id(f);
+                        let selected = current == id;
+                        let clash: Vec<String> = binding_of(f).and_then(|v| clashes.get(v)).map(|names| names.iter().filter(|n| **n != f.label.as_deref().unwrap_or(&f.key)).cloned().collect()).unwrap_or_default();
+                        let r = Row { id: &id, hot: selected && focused, capturing: st.capture == Some(id.as_str()), clash, cooling: st.cooling };
+                        let changed = saved_values.get(&id) != Some(&f.value);
                         let kb_here = if selected { kb } else { None };
-                        // Settings under a header sit in from it.
-                        let indent = if f.section.is_empty() { 0 } else { 18 };
-                        let (rect, clicked, edit) = egui::Frame::new()
-                            .inner_margin(egui::Margin { left: indent, ..Default::default() })
-                            .show(ui, |ui| field_row(ui, &ctx, f, kb_here, selected && focus_widget, st.unfolded, out))
-                            .inner;
+                        let (rect, pressed, edit) = field_row(ui, t, &r, f, changed, kb_here, selected && focus_widget, st.unfolded, out);
                         if let Some(v) = edit {
                             out.edit = Some((*n, v));
                         }
-                        if clicked {
+                        if pressed {
                             *st.field_sel = Some(id.clone());
                             out.focus = Some(Zone::Side);
                         }
@@ -1418,74 +1314,28 @@ fn editor(ui: &mut Ui, t: &Theme, o: &mut Open, st: EditorState, running: bool, 
                             ui.scroll_to_rect(rect, Some(Align::Center));
                         }
                     }
+                });
+                (r, inner.unwrap_or(()))
+            };
+            if !sec.is_empty() {
+                if head.clicked() {
+                    *st.field_sel = Some(hid.clone());
+                    out.fold = Some(fold_of(sec));
+                    out.focus = Some(Zone::Side);
+                }
+                if current == hid && scroll {
+                    ui.scroll_to_rect(head.rect, Some(Align::Center));
                 }
             }
-            ui.add_space(12.0);
-        });
-    }
-}
-
-/// A settings header: a fold arrow, the header's path and how many settings it holds, over a hairline.
-fn section_header(ui: &mut Ui, t: &Theme, path: &[String], count: usize, open: bool, at: bool) -> egui::Response {
-    let size = t.body_size();
-    let h = size + 16.0;
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
-    if ui.is_rect_visible(rect) {
-        let p = ui.painter();
-        if at {
-            p.rect_filled(rect, 0.0, t.fg_a(t.menu_selected_bg_alpha));
-        } else if resp.hovered() {
-            p.rect_filled(rect, 0.0, t.fg_a(t.hover_fill_alpha));
         }
-        let cy = rect.center().y;
-        let arrow = if open { "\u{f0140}" } else { "\u{f0142}" };
-        p.text(egui::pos2(rect.left() + 6.0, cy), egui::Align2::LEFT_CENTER, arrow, FontId::monospace(size), t.muted);
-        let x = rect.left() + 6.0 + size + 6.0;
-        let c = p.layout_no_wrap(if count == 1 { "1 setting".into() } else { format!("{count} settings") }, FontId::monospace(size - 1.0), t.muted);
-        let cw = c.size().x;
-        p.galley(egui::pos2(rect.right() - 8.0 - cw, cy - c.size().y / 2.0), c, t.muted);
-        // The screens it's inside, quietly; its own name in bold.
-        let mut job = LayoutJob::default();
-        if let Some((last, parents)) = path.split_last() {
-            for s in parents {
-                job.append(&format!("{s}  ›  "), 0.0, TextFormat::simple(FontId::monospace(size), t.muted));
-            }
-            job.append(last, 0.0, TextFormat::simple(crate::design::fonts::bold(size), if at { t.menu_selected_text } else { t.fg_light }));
-        }
-        let g = p.layout_job(job);
-        let tw = g.size().x;
-        let clip = Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(rect.right() - 18.0 - cw, rect.bottom()));
-        p.with_clip_rect(clip).galley(egui::pos2(x, cy - g.size().y / 2.0), g, t.fg_light);
-        let (l, r) = (x + tw + 10.0, rect.right() - 18.0 - cw);
-        if r > l {
-            p.hline(l..=r, cy, Stroke::new(1.0, t.fg_a(0.10)));
-        }
-    }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-/// A bordered note with a coloured glyph, and room for buttons under the text.
-fn notice(ui: &mut Ui, t: &Theme, color: egui::Color32, glyph: &str, text: &str, extra: impl FnOnce(&mut Ui)) {
-    egui::Frame::new().stroke(Stroke::new(1.0, Theme::alpha(color, 0.55))).fill(Theme::alpha(color, 0.06)).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.horizontal_top(|ui| {
-            ui.label(RichText::new(glyph).color(color));
-            ui.vertical(|ui| {
-                w::para(ui, RichText::new(text).color(t.fg).size(t.body_size() - 1.0));
-                extra(ui);
-            });
-        });
+        ui.add_space(tk::GUTTER);
     });
 }
 
 struct Row<'a> {
-    t: &'a Theme,
     id: &'a str,
-    selected: bool,
-    focused: bool,
-    changed: bool,
-    wide: bool,
-    key_w: f32,
+    /// Keyboard-current while the editor has the keyboard.
+    hot: bool,
     /// Key bindings: waiting for this one's key, the other bindings on the same key, and whether a capture just
     /// ended.
     capturing: bool,
@@ -1493,58 +1343,49 @@ struct Row<'a> {
     cooling: bool,
 }
 
-/// One setting: its key and description on the left, its value on the right (or under
-/// each other when narrow). Returns its rect, whether it was clicked, and a new value.
-fn field_row(ui: &mut Ui, r: &Row, f: &Field, kb: Option<Nav>, focus_widget: bool, unfolded: &mut HashSet<String>, out: &mut Out) -> (Rect, bool, Option<Value>) {
-    let t = r.t;
-    let bg = ui.painter().add(egui::Shape::Noop);
-    let mut edit = None;
-    let inner = egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 10, top: 8, bottom: 9 }).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        let key_part = |ui: &mut Ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                if r.changed {
-                    ui.label(RichText::new("●").color(t.accent).size(t.body_size() - 3.0)).on_hover_text("changed, not saved yet");
-                }
-                let color = if r.selected { t.fg_light } else { t.fg };
-                let name = f.label.as_deref().unwrap_or(&f.key);
-                ui.add(egui::Label::new(RichText::new(name).font(crate::design::fonts::bold(t.body_size())).color(color)).truncate()).on_hover_text(&f.key);
-            });
-            if !f.doc.is_empty() {
-                w::para(ui, RichText::new(&f.doc).color(t.muted).size(t.body_size() - 1.0));
-            }
-        };
-        if r.wide {
-            ui.horizontal_top(|ui| {
-                ui.allocate_ui_with_layout(vec2(r.key_w, 0.0), Layout::top_down(Align::Min), |ui| {
-                    ui.set_width(r.key_w);
-                    key_part(ui);
-                });
-                ui.add_space(18.0);
-                ui.vertical(|ui| edit = value_part(ui, t, f, r, kb, focus_widget, unfolded, out));
-            });
-        } else {
-            key_part(ui);
-            ui.add_space(4.0);
-            edit = value_part(ui, t, f, r, kb, focus_widget, unfolded, out);
+/// One setting as a settings row: its name, the comment's description, a line of facts (range, default) with
+/// "use default" when it isn't, and its control on the shared column. Returns its rect, whether it was
+/// pressed, and a new value.
+#[allow(clippy::too_many_arguments)]
+fn field_row(ui: &mut Ui, t: &Tokens, r: &Row, f: &Field, changed: bool, kb: Option<Nav>, focus_widget: bool, unfolded: &mut HashSet<String>, out: &mut Out) -> (Rect, bool, Option<Value>) {
+    let name = f.label.as_deref().unwrap_or(&f.key);
+    let default = default_value(f);
+    let current = if let Value::Scalar(s) = &f.value { Some(s) } else { None };
+    let info_only = f.hint.allowed.len() == 1;
+    let mut facts: Vec<String> = Vec::new();
+    if !info_only {
+        if let Some(r) = range_text(&f.hint) {
+            facts.push(r);
         }
-    });
-    let rect = inner.response.rect;
-    let hovered = ui.rect_contains_pointer(rect);
-    let clicked = hovered && ui.input(|i| i.pointer.primary_pressed());
-    let shape = if r.selected {
-        egui::Shape::Rect(egui::epaint::RectShape::new(rect, CornerRadius::ZERO, t.fg_a(t.menu_selected_bg_alpha * 0.7), Stroke::new(1.0, t.fg_a(t.menu_selected_border_alpha * 0.6)), StrokeKind::Inside))
-    } else if hovered {
-        egui::Shape::rect_filled(rect, CornerRadius::ZERO, t.fg_a(t.hover_fill_alpha * 0.35))
-    } else {
-        egui::Shape::Noop
-    };
-    ui.painter().set(bg, shape);
-    if r.focused {
-        w::focus_mark(ui, t, rect);
+        if let Some(d) = &default {
+            let shown = match d {
+                Scalar::Bool(b) if f.hint.on_off => (if *b { "on" } else { "off" }).to_string(),
+                Scalar::Str(v) if f.hint.binding => crate::vanilla_options::binding_value(v).unwrap_or_else(|| v.clone()),
+                _ => f.hint.name_of(&d.display()).to_string(),
+            };
+            facts.push(format!("default {shown}"));
+        }
     }
-    (rect, clicked, edit)
+    let warn = !r.clash.is_empty();
+    if warn {
+        facts.insert(0, format!("also on {}", r.clash.join(", ")));
+    }
+    let facts = facts.join(" · ");
+    let resettable = !info_only && default.as_ref().is_some_and(|d| Some(d) != current);
+    let mut row = SettingRow::new(name).dense().description(&f.doc).facts(&facts, warn.then(|| t.warning())).unsaved(changed).hot(r.hot).id_salt(("config-field", r.id));
+    if resettable {
+        row = row.action("use default");
+    }
+    let (ro, mut edit) = row.show_row(ui, t, |ui| value_part(ui, t, f, r, kb, focus_widget, unfolded, out));
+    if (ro.action || (resettable && kb == Some(Nav::Delete)))
+        && let Some(d) = default
+    {
+        edit = Some(Value::Scalar(d));
+    }
+    if name != f.key {
+        ro.response.clone().on_hover_text(&f.key);
+    }
+    (ro.response.rect, ro.pressed, edit)
 }
 
 /// A key binding's key, as written (`key.keyboard.w`).
@@ -1658,199 +1499,176 @@ fn default_value(f: &Field) -> Option<Scalar> {
     })
 }
 
-/// The value's widget and, under it, what the comment says about it.
+/// The value's control, on the row's control column. Returns a new value when the user changes it.
 #[allow(clippy::too_many_arguments)]
-fn value_part(ui: &mut Ui, t: &Theme, f: &Field, r: &Row, kb: Option<Nav>, focus: bool, unfolded: &mut HashSet<String>, out: &mut Out) -> Option<Value> {
+fn value_part(ui: &mut Ui, t: &Tokens, f: &Field, r: &Row, kb: Option<Nav>, focus: bool, unfolded: &mut HashSet<String>, out: &mut Out) -> Option<Value> {
     let id = r.id;
     let key = |n: Nav| kb == Some(n);
     let wid = egui::Id::new(("config-field", id));
-    let mut edit = None;
+    let width = ui.available_width();
     match &f.value {
         // A key binding: click (or enter), then press the key; right-click unbinds. Like Asteria's own keys.
         Value::Scalar(Scalar::Str(v)) if f.hint.binding => {
-            let shown = crate::vanilla_options::binding_value(v).unwrap_or_else(|| v.clone());
-            let text = if r.capturing { "press a key…".to_string() } else { shown };
-            let color = if r.capturing { t.accent } else if !r.clash.is_empty() { t.yellow } else { t.fg };
-            let mut b = egui::Button::new(RichText::new(text).color(color)).min_size(vec2(160.0, 0.0));
             if r.capturing {
-                b = b.stroke(Stroke::new(1.0, t.accent));
+                kit::caption_colored(ui, "press a key · esc cancels", t.accent);
+                return None;
             }
-            let hover = if r.capturing {
-                "press a key or mouse button · esc cancels".to_string()
-            } else if r.clash.is_empty() {
-                "click to change, right-click to unbind".to_string()
-            } else {
-                format!("also bound to: {}", r.clash.join(", "))
-            };
-            let resp = ui.add(b).on_hover_text(hover).on_hover_cursor(egui::CursorIcon::PointingHand);
-            if ((resp.clicked() && !r.cooling) || focus) && !r.capturing {
+            let shown = crate::vanilla_options::binding_value(v).unwrap_or_else(|| v.clone());
+            let resp = Button::new(&shown).min_width(width.min(tk::SETTING_CONTROL_WIDTH / 2.0)).hot(r.hot).show(ui, t).on_hover_text("click to change, right-click to unbind");
+            if (resp.clicked() && !r.cooling) || focus {
                 out.capture = Some(id.to_string());
             }
-            if resp.secondary_clicked() {
-                edit = Some(Value::Scalar(Scalar::Str("key.keyboard.unknown".into())));
-            }
+            resp.secondary_clicked().then(|| Value::Scalar(Scalar::Str("key.keyboard.unknown".into())))
         }
-        Value::Scalar(s) => {
-            if let Some(v) = scalar_widget(ui, t, s, &f.hint, wid, kb, focus, ui.available_width()) {
-                edit = Some(Value::Scalar(v));
-            }
-        }
-        Value::List { items, editable: true } => {
-            if let Some(items) = list_widget(ui, t, items, wid, id, unfolded, focus) {
-                edit = Some(Value::List { items, editable: true });
-            }
-        }
+        Value::Scalar(s) => scalar_widget(ui, t, s, &f.hint, default_value(f).as_ref(), wid, kb, focus, r.hot, width).map(Value::Scalar),
+        Value::List { items, editable: true } => list_widget(ui, t, items, wid, id, unfolded, focus, width).map(|items| Value::List { items, editable: true }),
         Value::List { .. } | Value::Other(_) => {
             let preview = match &f.value {
                 Value::List { items, .. } => format!("{} items", items.len()),
                 Value::Other(raw) => raw.lines().next().unwrap_or_default().chars().take(60).collect(),
                 _ => String::new(),
             };
-            ui.horizontal(|ui| {
-                ui.add(egui::Label::new(RichText::new(preview).color(t.muted).monospace()).truncate());
+            let mut edit_text = false;
+            ui.with_layout(Layout::top_down(Align::Max), |ui| {
+                edit_text = Button::new("edit as text").hot(r.hot).show(ui, t).clicked() || key(Nav::Activate);
+                ui.add_space(tk::UNIT / 2.0);
+                ui.add(egui::Label::new(egui::RichText::new(preview).font(fonts::raw(tk::SIZE_MONO)).color(t.text_muted)).truncate());
             });
-            if ui.add(egui::Label::new(RichText::new("edit as text").color(t.accent).size(t.body_size() - 1.0)).sense(Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() || key(Nav::Activate) {
+            if edit_text {
                 out.raw = Some(true);
             }
+            None
         }
     }
-
-    // Range and default, under the widget.
-    let range = range_text(&f.hint);
-    let default = default_value(f);
-    let current = if let Value::Scalar(s) = &f.value { Some(s) } else { None };
-    let at_default = default.as_ref().is_some_and(|d| Some(d) == current);
-    if f.hint.allowed.len() == 1 {
-        return edit;
-    }
-    if range.is_some() || default.is_some() {
-        ui.horizontal(|ui| {
-            let size = t.body_size() - 1.0;
-            ui.spacing_mut().item_spacing.x = 4.0;
-            if let Some(r) = &range {
-                ui.label(RichText::new(r).color(t.muted).size(size));
-            }
-            if let Some(d) = &default {
-                if range.is_some() {
-                    ui.label(RichText::new("·").color(t.muted).size(size));
-                }
-                let shown = match d {
-                    Scalar::Bool(b) if f.hint.on_off => (if *b { "on" } else { "off" }).to_string(),
-                    Scalar::Str(v) if f.hint.binding => crate::vanilla_options::binding_value(v).unwrap_or_else(|| v.clone()),
-                    _ => f.hint.name_of(&d.display()).to_string(),
-                };
-                let text = format!("default {shown}");
-                if at_default {
-                    ui.label(RichText::new(text).color(t.muted).size(size));
-                } else {
-                    let r = ui.add(egui::Label::new(RichText::new(format!("{text} \u{f054c}")).color(t.muted).size(size)).sense(Sense::click()));
-                    let r = r.on_hover_text("put the default back (x)").on_hover_cursor(egui::CursorIcon::PointingHand);
-                    if r.clicked() || key(Nav::Delete) {
-                        edit = Some(Value::Scalar(d.clone()));
-                    }
-                }
-            }
-        });
-    }
-    edit
 }
 
-/// An on/off switch: square, like the rest.
-fn switch(ui: &mut Ui, t: &Theme, on: bool) -> egui::Response {
-    let h = t.body_size() + 2.0;
-    let (rect, resp) = ui.allocate_exact_size(vec2(h * 2.0, h), Sense::click());
-    if ui.is_rect_visible(rect) {
-        let a = ui.ctx().animate_bool_with_time(resp.id, on, 0.1);
-        let p = ui.painter();
-        let border = if on { t.accent } else if resp.hovered() { t.fg_a(0.5) } else { t.fg_a(0.3) };
-        p.rect(rect, CornerRadius::ZERO, Theme::alpha(t.accent, 0.2 * a), Stroke::new(1.0, border), StrokeKind::Inside);
-        let k = h - 6.0;
-        let x = egui::lerp((rect.left() + 3.0)..=(rect.right() - 3.0 - k), a);
-        let knob = if on { t.accent } else { t.muted };
-        p.rect_filled(Rect::from_min_size(egui::pos2(x, rect.top() + 3.0), vec2(k, k)), CornerRadius::ZERO, knob);
-        if resp.has_focus() {
-            p.rect_stroke(rect.expand(2.0), CornerRadius::ZERO, Stroke::new(1.0, t.fg_a(0.4)), StrokeKind::Outside);
+/// A number with no range to slide over: typed or dragged, in a 1px frame like the kit's fields.
+/// It never changes the value by being drawn (`clamp_existing_to_range(false)`).
+fn number<N: egui::emath::Numeric>(ui: &mut Ui, t: &Tokens, x: &mut N, range: std::ops::RangeInclusive<N>, speed: f64, hot: bool, width: f32) -> egui::Response {
+    ui.scope(|ui| {
+        let style = ui.style_mut();
+        style.override_font_id = Some(fonts::text(tk::SIZE_BODY));
+        style.spacing.interact_size = vec2(width, tk::BUTTON_HEIGHT);
+        style.spacing.button_padding = vec2(tk::GAP, 0.0);
+        let v = &mut style.visuals;
+        v.extreme_bg_color = egui::Color32::TRANSPARENT;
+        v.text_edit_bg_color = Some(egui::Color32::TRANSPARENT);
+        v.text_cursor.stroke = egui::Stroke::new(tk::CARET_WIDTH, t.accent);
+        v.selection.bg_fill = t.wash(0.16);
+        v.selection.stroke = egui::Stroke::new(1.0, t.text_strong);
+        let rest = if hot { t.accent } else { t.line_strong };
+        for (w, line, ink) in [(&mut v.widgets.inactive, rest, if hot { t.accent } else { t.text_strong }), (&mut v.widgets.hovered, t.accent, t.accent), (&mut v.widgets.active, t.accent, t.accent)] {
+            w.bg_fill = egui::Color32::TRANSPARENT;
+            w.weak_bg_fill = egui::Color32::TRANSPARENT;
+            w.bg_stroke = egui::Stroke::new(tk::LINE, line);
+            w.fg_stroke = egui::Stroke::new(1.0, ink);
+            w.corner_radius = egui::CornerRadius::ZERO;
+            w.expansion = 0.0;
         }
-    }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+        ui.add(egui::DragValue::new(x).range(range).clamp_existing_to_range(false).speed(speed))
+    })
+    .inner
 }
 
-/// The widget for one value; returns the new value when it changes. `kb` is the
-/// keyboard's action on it, `focus` asks for it to take the keyboard.
-fn scalar_widget(ui: &mut Ui, t: &Theme, s: &Scalar, hint: &mc::Hint, wid: egui::Id, kb: Option<Nav>, focus: bool, max_w: f32) -> Option<Scalar> {
+/// Values within at most 1000 steps (and that a float holds exactly) get a slider.
+fn slides(lo: Option<f64>, hi: Option<f64>) -> Option<(f64, f64)> {
+    let (l, h) = (lo?, hi?);
+    let exact = 9_007_199_254_740_992.0;
+    (h > l && h - l <= 1000.0 && l.abs() < exact && h.abs() < exact).then_some((l, h))
+}
+
+/// A float slider's step: about a hundredth of the range, rounded to a power of ten.
+fn float_step(lo: f64, hi: f64) -> f64 {
+    10f64.powf(((hi - lo) / 100.0).log10().floor())
+}
+
+/// A user's slider move as written: to the step's own decimals, so `0.1 + 0.2` is written `0.3`.
+fn to_step(v: f64, step: f64) -> f64 {
+    let decimals = (-step.log10().floor()).max(0.0) as i32;
+    let k = 10f64.powi(decimals);
+    (v * k).round() / k
+}
+
+/// The control for one value; returns the new value when the user changes it. `kb` is the keyboard's
+/// action on it, `focus` asks for it to take the keyboard.
+#[allow(clippy::too_many_arguments)]
+fn scalar_widget(ui: &mut Ui, t: &Tokens, s: &Scalar, hint: &mc::Hint, default: Option<&Scalar>, wid: egui::Id, kb: Option<Nav>, focus: bool, hot: bool, max_w: f32) -> Option<Scalar> {
     let key = |n: Nav| kb == Some(n);
-    let lo = hint.min;
-    let hi = hint.max;
-    let narrow_range = |lo: f64, hi: f64| hi > lo && hi - lo <= 1000.0;
+    let width = max_w.min(tk::SETTING_CONTROL_WIDTH);
     match s {
         Scalar::Bool(b) => {
-            let mut out = None;
-            ui.horizontal(|ui| {
-                let r = switch(ui, t, *b);
-                let word = match (hint.on_off, *b) {
-                    (true, true) => "on",
-                    (true, false) => "off",
-                    (false, true) => "true",
-                    (false, false) => "false",
-                };
-                let label = ui.add(egui::Label::new(RichText::new(word).color(if *b { t.fg } else { t.muted })).sense(Sense::click()));
-                if r.clicked() || label.clicked() || key(Nav::Toggle) || focus {
-                    out = Some(Scalar::Bool(!b));
-                }
-            });
-            out
+            let r = kit::switch(ui, t, *b, true, hot, if *b { "on" } else { "off" });
+            (r.clicked() || key(Nav::Toggle) || focus).then_some(Scalar::Bool(!b))
         }
-        Scalar::Int(v) => {
-            let mut x = *v;
-            let (a, b) = (lo.map_or(i64::MIN, |m| m.max(i64::MIN as f64) as i64), hi.map_or(i64::MAX, |m| m.min(i64::MAX as f64) as i64));
-            let r = match (lo, hi) {
-                (Some(l), Some(h)) if narrow_range(l, h) => {
-                    ui.spacing_mut().slider_width = (ui.available_width() - 90.0).clamp(80.0, 240.0);
-                    ui.add(egui::Slider::new(&mut x, a..=b).clamping(egui::SliderClamping::Edits))
+        Scalar::Int(v) => match slides(hint.min, hint.max) {
+            Some((l, h)) => {
+                let mut x = *v as f64;
+                let mut slider = kit::Slider::new(&mut x, l.ceil(), h.floor()).step(1.0).value_text(v.to_string()).width(width).hot(hot);
+                if let Some(Scalar::Int(d)) = default {
+                    slider = slider.mark(*d as f64);
                 }
-                _ => ui.add(egui::DragValue::new(&mut x).range(a..=b).clamp_existing_to_range(false).speed(((v.abs() as f64) * 0.01).max(0.1))),
-            };
-            if focus {
-                r.request_focus();
+                let r = slider.show(ui, t);
+                if focus {
+                    r.request_focus();
+                }
+                (r.changed() && x.round() as i64 != *v).then(|| Scalar::Int(x.round() as i64))
             }
-            (r.changed() && x != *v).then_some(Scalar::Int(x))
-        }
-        Scalar::Float(v) => {
-            let mut x = *v;
-            let (a, b) = (lo.unwrap_or(f64::MIN), hi.unwrap_or(f64::MAX));
-            let r = match (lo, hi) {
-                (Some(l), Some(h)) if narrow_range(l, h) => {
-                    ui.spacing_mut().slider_width = (ui.available_width() - 90.0).clamp(80.0, 240.0);
-                    ui.add(egui::Slider::new(&mut x, a..=b).clamping(egui::SliderClamping::Edits))
+            None => {
+                let mut x = *v;
+                let (a, b) = (hint.min.map_or(i64::MIN, |m| m.max(i64::MIN as f64) as i64), hint.max.map_or(i64::MAX, |m| m.min(i64::MAX as f64) as i64));
+                let r = number(ui, t, &mut x, a..=b, ((v.abs() as f64) * 0.01).max(0.1), hot, width.min(tk::SETTING_CONTROL_WIDTH / 2.0));
+                if focus {
+                    r.request_focus();
                 }
-                _ => ui.add(egui::DragValue::new(&mut x).range(a..=b).clamp_existing_to_range(false).speed((v.abs() * 0.01).max(0.01))),
-            };
-            if focus {
-                r.request_focus();
+                (r.changed() && x != *v).then_some(Scalar::Int(x))
             }
-            (r.changed() && x != *v).then_some(Scalar::Float(x))
-        }
+        },
+        Scalar::Float(v) => match slides(hint.min, hint.max) {
+            Some((l, h)) => {
+                let step = float_step(l, h);
+                let mut x = *v;
+                let mut slider = kit::Slider::new(&mut x, l, h).step(step).value_text(format!("{v}")).width(width).hot(hot);
+                if let Some(Scalar::Float(d)) = default {
+                    slider = slider.mark(*d);
+                }
+                let r = slider.show(ui, t);
+                if focus {
+                    r.request_focus();
+                }
+                let x = to_step(x, step);
+                (r.changed() && x != *v).then_some(Scalar::Float(x))
+            }
+            None => {
+                let mut x = *v;
+                let r = number(ui, t, &mut x, hint.min.unwrap_or(f64::MIN)..=hint.max.unwrap_or(f64::MAX), (v.abs() * 0.01).max(0.01), hot, width.min(tk::SETTING_CONTROL_WIDTH / 2.0));
+                if focus {
+                    r.request_focus();
+                }
+                (r.changed() && x != *v).then_some(Scalar::Float(x))
+            }
+        },
         // A pack's information "button": one value, nothing to choose. Its name and text are the point.
         Scalar::Str(_) if hint.allowed.len() == 1 => None,
         // Values along a scale (a shader's sliders): a slider over the steps, showing the step's name.
         Scalar::Str(v) if hint.steps && hint.allowed.len() > 1 => {
             let steps = &hint.allowed;
             let at = steps.iter().position(|x| x == v);
-            let mut i = at.unwrap_or(0);
-            let mut pick = None;
-            ui.horizontal(|ui| {
-                ui.spacing_mut().slider_width = (ui.available_width() - 110.0).clamp(80.0, 240.0);
-                let r = ui.add(egui::Slider::new(&mut i, 0..=steps.len() - 1).show_value(false));
-                if focus {
-                    r.request_focus();
-                }
-                if r.changed() && Some(i) != at {
-                    pick = Some(steps[i].clone());
-                }
-                ui.label(RichText::new(hint.name_of(v)).color(t.fg));
-            });
+            let mut i = at.unwrap_or(0) as f64;
+            let mut slider = kit::Slider::new(&mut i, 0.0, (steps.len() - 1) as f64).step(1.0).value_text(hint.name_of(v)).width(width).hot(hot);
+            if let Some(d) = default.and_then(|d| match d {
+                Scalar::Str(d) => steps.iter().position(|x| x == d),
+                _ => None,
+            }) {
+                slider = slider.mark(d as f64);
+            }
+            let r = slider.show(ui, t);
+            if focus {
+                r.request_focus();
+            }
+            let i = i.round() as usize;
+            let mut pick = (r.changed() && Some(i) != at).then(|| steps[i].clone());
             if key(Nav::Toggle) {
-                pick = Some(steps[(at.map_or(0, |a| a + 1)) % steps.len()].clone());
+                pick = Some(steps[at.map_or(0, |a| a + 1) % steps.len()].clone());
             }
             pick.map(Scalar::Str)
         }
@@ -1859,144 +1677,136 @@ fn scalar_widget(ui: &mut Ui, t: &Theme, s: &Scalar, hint: &mc::Hint, wid: egui:
             if !options.contains(v) {
                 options.insert(0, v.clone());
             }
+            let at = options.iter().position(|o| o == v).unwrap_or(0);
             let mut pick = None;
-            // Few short choices read best side by side; more go in a menu.
-            let short = options.len() <= 4 && options.iter().map(|o| hint.name_of(o).chars().count() + 3).sum::<usize>() as f32 * t.body_size() * 0.62 < ui.available_width();
-            if short {
-                let mut cur = v.clone();
-                let opts: Vec<(String, &str)> = options.iter().map(|o| (o.clone(), hint.name_of(o))).collect();
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    for (val, label) in &opts {
-                        let on = cur == *val;
-                        let text = if on { RichText::new(*label).color(t.bg) } else { RichText::new(*label).color(t.fg) };
-                        let mut b = egui::Button::new(text).corner_radius(0);
-                        if on {
-                            b = b.fill(t.accent).stroke(Stroke::new(1.0, t.accent));
-                        }
-                        if ui.add(b).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !on {
-                            cur = val.clone();
-                            pick = Some(cur.clone());
-                        }
-                    }
-                });
+            // Few short choices read best side by side, joined; more go in a menu.
+            let buttons: Vec<Button> = options.iter().map(|o| Button::new(hint.name_of(o))).collect();
+            let joined = buttons.iter().map(|b| b.width(ui, t)).sum::<f32>() - (buttons.len() - 1) as f32 * tk::LINE;
+            if options.len() <= 4 && joined <= max_w {
+                let mut i = at;
+                let labels: Vec<(usize, &str)> = options.iter().enumerate().map(|(n, o)| (n, hint.name_of(o))).collect();
+                if kit::segmented(ui, t, &mut i, &labels) {
+                    pick = Some(options[i].clone());
+                }
             } else {
-                let width = (max_w - 8.0).clamp(120.0, 280.0);
-                egui::ComboBox::from_id_salt(wid).selected_text(hint.name_of(v)).width(width).show_ui(ui, |ui| {
-                    for o in &options {
-                        if ui.selectable_label(o == v, hint.name_of(o)).clicked() && o != v {
-                            pick = Some(o.clone());
+                let resp = Button::new(hint.name_of(v)).icon(glyphs::CARET_DOWN).min_width(width.min(tk::SETTING_CONTROL_WIDTH * 0.75)).hot(hot).show(ui, t);
+                egui::Popup::menu(&resp).id(wid.with("menu")).width(resp.rect.width()).show(|ui| {
+                    egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                        for o in &options {
+                            if ui.selectable_label(o == v, hint.name_of(o)).clicked() && o != v {
+                                pick = Some(o.clone());
+                            }
                         }
-                    }
+                    });
                 });
             }
             if key(Nav::Toggle) || focus {
-                let i = options.iter().position(|o| o == v).unwrap_or(0);
-                pick = Some(options[(i + 1) % options.len()].clone());
+                pick = Some(options[(at + 1) % options.len()].clone());
             }
             pick.map(Scalar::Str)
         }
         Scalar::Str(v) => {
             let mut buf = v.clone();
-            let width = (max_w - 4.0).clamp(100.0, 420.0);
-            let r = ui.add(egui::TextEdit::singleline(&mut buf).id_salt(wid).desired_width(width).margin(vec2(8.0, 4.0)).font(egui::TextStyle::Monospace));
-            if focus {
-                r.request_focus();
-            }
+            let r = kit::Field::new(&mut buf).hint("empty").width(width).focus(focus).show(ui, t);
             (r.changed() && buf != *v).then_some(Scalar::Str(buf))
         }
     }
 }
 
-/// A list of plain values: one row each, with remove and add. Long ones start folded.
-fn list_widget(ui: &mut Ui, t: &Theme, items: &[Scalar], wid: egui::Id, id: &str, unfolded: &mut HashSet<String>, focus: bool) -> Option<Vec<Scalar>> {
+/// A list of plain values: a field each, with remove, and add under them. Long ones start folded.
+#[allow(clippy::too_many_arguments)]
+fn list_widget(ui: &mut Ui, t: &Tokens, items: &[Scalar], wid: egui::Id, id: &str, unfolded: &mut HashSet<String>, focus: bool, width: f32) -> Option<Vec<Scalar>> {
     let mut new: Option<Vec<Scalar>> = None;
-    let long = items.len() > FOLD_AT;
+    let long = items.len() > tk::CONFIG_LIST_FOLD;
     let open = !long || unfolded.contains(id);
-    if long {
-        let label = if open { format!("{} items  ·  fold", items.len()) } else { format!("{} items  ·  show", items.len()) };
-        if ui.add(egui::Label::new(RichText::new(label).color(t.accent)).sense(Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() || (focus && !open) {
-            if open {
-                unfolded.remove(id);
-            } else {
-                unfolded.insert(id.to_string());
+    ui.with_layout(Layout::top_down(Align::Max), |ui| {
+        ui.spacing_mut().item_spacing.y = tk::UNIT;
+        if long {
+            let label = if open { format!("fold {} items", items.len()) } else { format!("show {} items", items.len()) };
+            if Button::new(&label).show(ui, t).clicked() || (focus && !open) {
+                if open {
+                    unfolded.remove(id);
+                } else {
+                    unfolded.insert(id.to_string());
+                }
             }
         }
-    }
-    if !open {
-        let preview: Vec<String> = items.iter().take(4).map(Scalar::display).collect();
-        ui.add(egui::Label::new(RichText::new(format!("{} …", preview.join(", "))).color(t.muted).size(t.body_size() - 1.0)).truncate());
-        return None;
-    }
-    if items.is_empty() {
-        ui.label(RichText::new("empty").color(t.muted).size(t.body_size() - 1.0));
-    }
-    let hint = mc::Hint::default();
-    // Every row the same width, with room for its remove button.
-    let row_w = ui.available_width() - t.body_size() * 2.5;
-    for (i, it) in items.iter().enumerate() {
-        ui.horizontal(|ui| {
-            let changed = scalar_widget(ui, t, it, &hint, wid.with(i), None, focus && i == 0, row_w);
-            if let Some(v) = changed {
-                let mut v2 = items.to_vec();
-                v2[i] = v;
-                new = Some(v2);
-            }
-            if ui.add(egui::Button::new(RichText::new("\u{f0156}").color(t.muted)).frame(false)).on_hover_text("remove").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                let mut v2 = items.to_vec();
-                v2.remove(i);
-                new = Some(v2);
-            }
-        });
-    }
-    if ui.add(egui::Label::new(RichText::new("+ add").color(t.accent).size(t.body_size() - 1.0)).sense(Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-        let blank = match items.first() {
-            Some(Scalar::Bool(_)) => Scalar::Bool(false),
-            Some(Scalar::Int(_)) => Scalar::Int(0),
-            Some(Scalar::Float(_)) => Scalar::Float(0.0),
-            _ => Scalar::Str(String::new()),
-        };
-        let mut v2 = items.to_vec();
-        v2.push(blank);
-        new = Some(v2);
-    }
+        if !open {
+            let preview: Vec<String> = items.iter().take(4).map(Scalar::display).collect();
+            ui.add(egui::Label::new(kit::text::caption_job(&format!("{} …", preview.join(", ")), t.text_muted)).selectable(false).truncate());
+            return;
+        }
+        if items.is_empty() {
+            kit::caption(ui, t, "empty");
+        }
+        let hint = mc::Hint::default();
+        // Every row the same width, with room for its remove button.
+        let field_w = (width - tk::BUTTON_HEIGHT - tk::UNIT).max(80.0);
+        for (i, it) in items.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = tk::UNIT;
+                if Button::new("").icon(glyphs::X).show(ui, t).on_hover_text("remove").clicked() {
+                    let mut v2 = items.to_vec();
+                    v2.remove(i);
+                    new = Some(v2);
+                }
+                if let Some(v) = scalar_widget(ui, t, it, &hint, None, wid.with(i), None, focus && i == 0, false, field_w) {
+                    let mut v2 = items.to_vec();
+                    v2[i] = v;
+                    new = Some(v2);
+                }
+            });
+        }
+        if Button::new("add").icon(glyphs::PLUS).show(ui, t).clicked() {
+            let blank = match items.first() {
+                Some(Scalar::Bool(_)) => Scalar::Bool(false),
+                Some(Scalar::Int(_)) => Scalar::Int(0),
+                Some(Scalar::Float(_)) => Scalar::Float(0.0),
+                _ => Scalar::Str(String::new()),
+            };
+            let mut v2 = items.to_vec();
+            v2.push(blank);
+            new = Some(v2);
+        }
+    });
     new
 }
 
 // -- text -------------------------------------------------------------------------
 
-fn raw_editor(ui: &mut Ui, t: &Theme, o: &mut Open, focus: bool, focused: bool) {
-    let size = t.body_size() - 1.0;
-    let font = FontId::monospace(size);
+/// The whole file as text, in JetBrains Mono (raw text: an approved exception), in a 1px frame
+/// with line numbers; an error the parser found is named under it in the error colour.
+fn raw_editor(ui: &mut Ui, t: &Tokens, o: &mut Open, focus: bool, focused: bool) {
+    let size = tk::SIZE_MONO;
+    let font = fonts::raw(size);
     let error = if o.format.structured() { o.doc.as_ref().err().cloned() } else { None };
     // The error line goes at the bottom; the editor takes the rest.
-    let bottom = if error.is_some() { t.body_size() * 2.6 } else { 0.0 };
-    let stroke = if focused { Stroke::new(1.0, t.accent) } else { Stroke::new(1.0, t.fg_a(0.10)) };
-    let height = (ui.available_height() - bottom).max(120.0);
+    let bottom = if error.is_some() { tk::SIZE_BODY * 2.6 } else { 0.0 };
+    let height = (ui.available_height() - bottom - tk::GAP).max(120.0);
     let mut changed = false;
-    egui::Frame::new().fill(t.bg_dark).stroke(stroke).inner_margin(egui::Margin::symmetric(6, 6)).show(ui, |ui| {
-        ui.set_height(height - 12.0);
+    let resp = egui::Frame::new().inner_margin(egui::Margin::same(tk::GAP as i8)).show(ui, |ui| {
+        ui.set_height(height - tk::GAP * 2.0);
+        ui.set_width(ui.available_width());
         egui::ScrollArea::both().id_salt(("config-text", &o.rel)).auto_shrink(false).show(ui, |ui| {
             ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.spacing_mut().item_spacing.x = tk::GAP;
                 // Line numbers, the same height as the text's lines.
                 let lines = o.text.split('\n').count().max(1);
                 let digits = lines.to_string().len();
-                let numbers: String = (1..=lines).map(|n| format!("{n:>digits$}")).collect::<Vec<_>>().join("\n");
                 let err_line = error.as_ref().map(|e| e.line);
                 let mut job = LayoutJob::default();
-                for (n, l) in numbers.split('\n').enumerate() {
-                    let c = if err_line == Some(n + 1) { t.red } else { t.fg_a(0.28) };
-                    job.append(l, 0.0, TextFormat::simple(font.clone(), c));
-                    if n + 1 < lines {
+                for n in 1..=lines {
+                    let c = if err_line == Some(n) { t.error() } else { t.code_comment };
+                    job.append(&format!("{n:>digits$}"), 0.0, TextFormat::simple(font.clone(), c));
+                    if n < lines {
                         job.append("\n", 0.0, TextFormat::simple(font.clone(), c));
                     }
                 }
                 ui.add(egui::Label::new(job).selectable(false));
                 let format = o.format;
-                let theme = t.clone();
+                let tokens = t.clone();
                 let mut layouter = |ui: &Ui, buf: &dyn egui::TextBuffer, _wrap: f32| {
-                    let mut job = highlight(&theme, format, buf.as_str(), size);
+                    let mut job = highlight(&tokens, format, buf.as_str(), size);
                     job.wrap.max_width = f32::INFINITY;
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
@@ -2009,7 +1819,15 @@ fn raw_editor(ui: &mut Ui, t: &Theme, o: &mut Open, focus: bool, focused: bool) 
                     .desired_rows(lines.max(10))
                     .lock_focus(true)
                     .layouter(&mut layouter);
-                let r = ui.add(edit);
+                let r = ui
+                    .scope(|ui| {
+                        let v = ui.visuals_mut();
+                        v.text_cursor.stroke = egui::Stroke::new(tk::CARET_WIDTH, t.accent);
+                        v.selection.bg_fill = t.wash(0.16);
+                        v.selection.stroke = egui::Stroke::new(1.0, t.text_strong);
+                        ui.add(edit)
+                    })
+                    .inner;
                 if focus {
                     r.request_focus();
                 }
@@ -2017,26 +1835,27 @@ fn raw_editor(ui: &mut Ui, t: &Theme, o: &mut Open, focus: bool, focused: bool) 
             });
         });
     });
+    let hot = focused || ui.rect_contains_pointer(resp.response.rect);
+    kit::rule::frame(ui.painter(), resp.response.rect, crate::design::motion::color(ui.ctx(), ui.id().with("config-text-frame"), hot, t.line_strong, t.accent));
     if changed {
         o.doc = mc::parse(o.format, &o.text);
     }
     if let Some(e) = error {
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("\u{f0026}").color(t.red));
-            ui.add(egui::Label::new(RichText::new(format!("{e}")).color(t.red).size(t.body_size() - 1.0)).truncate());
-        });
+        ui.add_space(tk::UNIT);
+        kit::text::body_colored(ui, &format!("{e}"), t.error());
     }
 }
 
-/// Colours for config text: comments, keys, strings, numbers, section headers.
-fn highlight(t: &Theme, format: Format, text: &str, size: f32) -> LayoutJob {
-    let font = FontId::monospace(size);
+/// Colours for config text (StarShell's code palette): comments, keys, strings, values, section headers;
+/// punctuation muted, the rest in the text colour. The accent stays off code.
+fn highlight(t: &Tokens, format: Format, text: &str, size: f32) -> LayoutJob {
+    let font = fonts::raw(size);
     let mut job = LayoutJob::default();
     if text.len() > HIGHLIGHT_MAX {
-        job.append(text, 0.0, TextFormat::simple(font, t.fg));
+        job.append(text, 0.0, TextFormat::simple(font, t.text_strong));
         return job;
     }
+    let (plain_c, punct, comment, key_c, string_c, value_c, section_c) = (t.text_strong, t.text_muted, t.code_comment, t.code_function, t.code_string, t.code_constant, t.code_keyword);
     let mut push = |range: std::ops::Range<usize>, c: egui::Color32| {
         if !range.is_empty() {
             job.append(&text[range], 0.0, TextFormat::simple(font.clone(), c));
@@ -2067,23 +1886,23 @@ fn highlight(t: &Theme, format: Format, text: &str, size: f32) -> LayoutJob {
             let mut plain = 0;
             while i < b.len() {
                 let (end, color) = match b[i] {
-                    b'/' if b.get(i + 1) == Some(&b'/') => (text[i..].find('\n').map_or(b.len(), |n| i + n), t.muted),
-                    b'/' if b.get(i + 1) == Some(&b'*') => (text[i + 2..].find("*/").map_or(b.len(), |n| i + 2 + n + 2), t.muted),
+                    b'/' if b.get(i + 1) == Some(&b'/') => (text[i..].find('\n').map_or(b.len(), |n| i + n), comment),
+                    b'/' if b.get(i + 1) == Some(&b'*') => (text[i + 2..].find("*/").map_or(b.len(), |n| i + 2 + n + 2), comment),
                     q @ (b'"' | b'\'') => {
                         let end = string_end(i, q);
                         let after = text[end..].trim_start_matches([' ', '\t']);
-                        (end, if after.starts_with(':') { t.blue } else { t.green })
+                        (end, if after.starts_with(':') { key_c } else { string_c })
                     }
                     c if c.is_ascii_alphanumeric() || matches!(c, b'-' | b'+' | b'.' | b'_') => {
                         let end = word_end(i);
                         let w = &text[i..end];
                         let after = text[end..].trim_start_matches([' ', '\t']);
                         if after.starts_with(':') {
-                            (end, t.blue)
+                            (end, key_c)
                         } else if is_value_word(w) {
-                            (end, t.orange)
+                            (end, value_c)
                         } else {
-                            (end, t.fg)
+                            (end, plain_c)
                         }
                     }
                     _ => {
@@ -2091,12 +1910,12 @@ fn highlight(t: &Theme, format: Format, text: &str, size: f32) -> LayoutJob {
                         continue;
                     }
                 };
-                push(plain..i, t.fg_a(0.7));
+                push(plain..i, punct);
                 push(i..end, color);
                 i = end;
                 plain = end;
             }
-            push(plain..b.len(), t.fg_a(0.7));
+            push(plain..b.len(), punct);
         }
         Format::Toml | Format::Text | Format::Options | Format::ShaderSettings => {
             let mut start = 0;
@@ -2104,41 +1923,41 @@ fn highlight(t: &Theme, format: Format, text: &str, size: f32) -> LayoutJob {
                 let end = start + line.len();
                 let trimmed = line.trim_start();
                 let lead = start + (line.len() - trimmed.len());
-                push(start..lead, t.fg);
+                push(start..lead, plain_c);
                 let comment_start = |c: u8| c == b'#' || (format != Format::Toml && (c == b';' || c == b'!'));
                 if trimmed.bytes().next().is_some_and(comment_start) || trimmed.starts_with("//") {
-                    push(lead..end, t.muted);
+                    push(lead..end, comment);
                 } else if trimmed.starts_with('[') {
-                    push(lead..end, t.accent);
+                    push(lead..end, section_c);
                 } else {
                     // key = value  (or key: value in .properties and YAML)
                     let sep = line[lead - start..].find(['=', ':']).map(|n| lead + n);
                     let mut i = lead;
                     if let Some(s) = sep {
-                        push(lead..s, t.blue);
-                        push(s..s + 1, t.fg_a(0.7));
+                        push(lead..s, key_c);
+                        push(s..s + 1, punct);
                         i = s + 1;
                     }
                     let mut plain = i;
                     while i < end {
                         let c = b[i];
                         let (stop, color) = if c == b'#' && format == Format::Toml {
-                            (end, t.muted)
+                            (end, comment)
                         } else if c == b'"' || c == b'\'' {
-                            (string_end(i, c).min(end), t.green)
+                            (string_end(i, c).min(end), string_c)
                         } else if (c.is_ascii_alphanumeric() || matches!(c, b'-' | b'+' | b'.')) && (i == plain || !b[i - 1].is_ascii_alphanumeric()) {
                             let we = word_end(i).min(end);
-                            (we, if is_value_word(&text[i..we]) { t.orange } else { t.fg })
+                            (we, if is_value_word(&text[i..we]) { value_c } else { plain_c })
                         } else {
                             i += 1;
                             continue;
                         };
-                        push(plain..i, t.fg_a(0.7));
+                        push(plain..i, punct);
                         push(i..stop, color);
                         i = stop;
                         plain = stop;
                     }
-                    push(plain..end, t.fg_a(0.7));
+                    push(plain..end, punct);
                 }
                 start = end;
             }
@@ -2200,18 +2019,17 @@ fn go(app: &mut App, away: &Away, ctx: &egui::Context) {
         Away::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
     }
 }
-
 /// The "unsaved changes" dialog; true when it's done.
 pub fn leave_dialog(app: &mut App, s: &Leave, ui: &mut Ui) -> bool {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let nav = app.modal_nav();
     let Some(o) = &app.config.open else { return true };
     let name = o.rel.display().to_string();
-    ui.set_width(440.0);
-    w::heading(ui, &t, "Unsaved changes");
-    ui.add_space(8.0);
-    w::para(ui, RichText::new(format!("{name} has changes that aren't saved yet.")).color(t.fg));
-    ui.add_space(14.0);
+    ui.set_max_width(tk::SHEET_WIDTH);
+    kit::heading(ui, &t, "Unsaved changes");
+    ui.add_space(tk::UNIT);
+    kit::body(ui, &t, &format!("{name} has changes that aren't saved yet."));
+    ui.add_space(tk::GUTTER);
     enum Choice {
         Save,
         Discard,
@@ -2219,13 +2037,14 @@ pub fn leave_dialog(app: &mut App, s: &Leave, ui: &mut Ui) -> bool {
     }
     let mut choice = None;
     ui.horizontal(|ui| {
-        if w::primary_button(ui, &t, "save").clicked() || nav == Some(Nav::Activate) {
+        ui.spacing_mut().item_spacing.x = tk::GAP;
+        if Button::new("save").filled().show(ui, &t).clicked() || nav == Some(Nav::Activate) {
             choice = Some(Choice::Save);
         }
-        if w::danger_button(ui, &t, "discard").clicked() {
+        if Button::new("discard").show(ui, &t).clicked() {
             choice = Some(Choice::Discard);
         }
-        if w::button(ui, "keep editing").clicked() {
+        if Button::new("keep editing").show(ui, &t).clicked() {
             choice = Some(Choice::Stay);
         }
     });
@@ -2254,7 +2073,7 @@ mod tests {
 
     #[test]
     fn highlighting_keeps_every_byte() {
-        let t = Theme::default();
+        let t = Tokens::new(false);
         for (format, text) in [
             (Format::Toml, "# c\n[a]\nk = \"v # not\" # yes\nn = 1.5\nlist = ['x', 2]\n"),
             (Format::Json5, "{\n  // c\n  'k': \"v\", n: -1e3, /* b */ x: [true, null]\n}"),
@@ -2311,6 +2130,50 @@ mod tests {
         assert_eq!(o.text, "a = 5\n");
         assert_eq!(o.conflict.as_deref(), Some("a = 6\n"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A setting's control never writes by being drawn: values outside their range, between steps, not among the
+    /// allowed ones, or past what a float holds exactly are shown as they are, frame after frame.
+    #[test]
+    fn drawing_a_setting_never_changes_it() {
+        let ctx = egui::Context::default();
+        let hint = |min: Option<f64>, max: Option<f64>, allowed: &[&str], steps: bool| mc::Hint { min, max, allowed: allowed.iter().map(|a| a.to_string()).collect(), steps, ..Default::default() };
+        let cases = [
+            (Scalar::Int(5000), hint(Some(0.0), Some(100.0), &[], false)),
+            (Scalar::Int(-7), hint(Some(0.0), Some(100.0), &[], false)),
+            (Scalar::Int(i64::MAX), hint(Some(0.0), None, &[], false)),
+            (Scalar::Float(0.123456789), hint(Some(0.0), Some(1.0), &[], false)),
+            (Scalar::Float(1e300), hint(None, None, &[], false)),
+            (Scalar::Str("medium".into()), hint(None, None, &["low", "high"], true)),
+            (Scalar::Str("odd".into()), hint(None, None, &["a", "b", "c", "d", "e", "f"], false)),
+            (Scalar::Str("odd".into()), hint(None, None, &["a", "b"], false)),
+            (Scalar::Str("text".into()), hint(None, None, &[], false)),
+            (Scalar::Bool(true), hint(None, None, &[], false)),
+        ];
+        for (n, (value, h)) in cases.iter().enumerate() {
+            for frame in 0..3 {
+                crate::design::test_frame(&ctx, frame as f64, |ui| {
+                    let t = Tokens::new(false);
+                    let got = scalar_widget(ui, &t, value, h, None, egui::Id::new(("case", n)), None, false, false, 300.0);
+                    assert_eq!(got, None, "case {n} ({value:?}) changed on frame {frame}");
+                });
+            }
+        }
+    }
+
+    /// A slider's move is written on the step's own decimals, and only ranges a float holds exactly slide.
+    #[test]
+    fn slider_moves_are_written_cleanly() {
+        let step = float_step(0.0, 1.0);
+        assert_eq!(step, 0.01);
+        assert_eq!(to_step(0.1 + 0.2, 0.1), 0.3);
+        assert_eq!(to_step(0.30000000000000004, step), 0.3);
+        assert_eq!(to_step(7.0, 1.0), 7.0);
+        assert_eq!(float_step(0.0, 1000.0), 10.0);
+        assert!(slides(Some(0.0), Some(1000.0)).is_some());
+        assert!(slides(Some(0.0), Some(1001.0)).is_none());
+        assert!(slides(Some(1e17), Some(1e17 + 10.0)).is_none());
+        assert!(slides(None, Some(10.0)).is_none());
     }
 
     #[test]

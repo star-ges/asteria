@@ -37,6 +37,14 @@ pub struct Palette {
     pub teal: Color32,
     pub slate: Color32,
     pub plum: Color32,
+    /// Syntax colours for the config editor's text mode (StarShell's code palette: the
+    /// language's own exception, for readability). Names stay `text_strong`, punctuation
+    /// `text_muted`; the accent stays off code.
+    pub code_keyword: Color32,
+    pub code_string: Color32,
+    pub code_constant: Color32,
+    pub code_function: Color32,
+    pub code_comment: Color32,
 }
 
 /// Cream. The accent is 4.7:1 on the background.
@@ -55,6 +63,12 @@ pub const LIGHT: Palette = Palette {
     teal: hex(0x2e6862),
     slate: hex(0x35596f),
     plum: hex(0x7d4a63),
+    // On cream the earth tones sank into the background, so light has its own clearer set.
+    code_keyword: hex(0xa3306e),
+    code_string: hex(0x2d7a3a),
+    code_constant: hex(0x7046ad),
+    code_function: hex(0x1d5f9c),
+    code_comment: hex(0x756d60),
 };
 
 /// A warm near-black, its own palette rather than an inversion. The accent is 5.6:1.
@@ -72,6 +86,12 @@ pub const DARK: Palette = Palette {
     teal: hex(0x5a948d),
     slate: hex(0x698fa7),
     plum: hex(0xb17a94),
+    // Dark uses the terminal's earth tones (the clarity hues are StarShell's terminal colours).
+    code_keyword: hex(0xb17a94),
+    code_string: hex(0x7c9251),
+    code_constant: hex(0xaa843b),
+    code_function: hex(0x698fa7),
+    code_comment: hex(0xa99f8d),
 };
 
 impl Palette {
@@ -92,6 +112,11 @@ impl Palette {
             teal: m(a.teal, b.teal),
             slate: m(a.slate, b.slate),
             plum: m(a.plum, b.plum),
+            code_keyword: m(a.code_keyword, b.code_keyword),
+            code_string: m(a.code_string, b.code_string),
+            code_constant: m(a.code_constant, b.code_constant),
+            code_function: m(a.code_function, b.code_function),
+            code_comment: m(a.code_comment, b.code_comment),
         }
     }
 
@@ -256,6 +281,12 @@ pub const SHEET_WIDTH: f32 = 760.0;
 pub const SHEET_WIDTH_WIDE: f32 = 1080.0;
 /// The mod sets sheet's left pane (the sets).
 pub const SETS_PANE_WIDTH: f32 = 320.0;
+/// The configs tab's file list: its share of the tab's width, within these bounds.
+pub const CONFIG_FILES_SHARE: f32 = 0.28;
+pub const CONFIG_FILES_MIN: f32 = 220.0;
+pub const CONFIG_FILES_MAX: f32 = 360.0;
+/// A config list's rows before it starts folded.
+pub const CONFIG_LIST_FOLD: usize = 6;
 /// Below this width the content tab shows installed and Modrinth one at a time.
 pub const CONTENT_TWO_PANES: f32 = 760.0;
 /// The version columns of the found-updates table.
@@ -369,7 +400,7 @@ pub mod tests {
     #[test]
     fn every_text_colour_is_at_least_4_5_to_1() {
         for p in [&LIGHT, &DARK] {
-            for c in [p.accent, p.text_strong, p.text_muted, p.clay, p.sienna, p.ochre, p.olive, p.teal, p.slate, p.plum] {
+            for c in [p.accent, p.text_strong, p.text_muted, p.clay, p.sienna, p.ochre, p.olive, p.teal, p.slate, p.plum, p.code_keyword, p.code_string, p.code_constant, p.code_function, p.code_comment] {
                 assert!(contrast(c, p.background) >= 4.5, "{c:?} on {:?} is {:.2}:1", p.background, contrast(c, p.background));
             }
             for fill in [p.text_strong, p.accent, p.clay, p.clay.lerp_to_gamma(p.text_strong, 0.25)] {
