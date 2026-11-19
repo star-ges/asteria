@@ -2,7 +2,7 @@
 //!
 //! - Every instance in a world set plays the same Minecraft version with the same
 //!   loader ([`same_game`]); the UI asks before one changes on its own.
-//! - When the game exits, each world it played gets an `omacraft.toml` ([`Record`]) of
+//! - When the game exits, each world it played gets an `asteria.toml` ([`Record`]) of
 //!   what it was started with ([`Loadout`]):
 //!   the instance, Minecraft version, loader and mods (id → version, read from the jars;
 //!   Fabric and Quilt worlds don't list their mods anywhere else).
@@ -25,8 +25,12 @@ use crate::instance::Instance;
 use crate::loaders::Loader;
 use crate::{fsutil, saves};
 
-/// The file Omacraft keeps in each world folder.
-pub const RECORD: &str = "omacraft.toml";
+/// The file Asteria keeps in each world folder.
+pub const RECORD: &str = "asteria.toml";
+
+/// The same record as Omacraft wrote it. Still read (worlds played before Asteria, or by
+/// an Omacraft sharing them), never written or deleted.
+pub const LEGACY_RECORD: &str = "omacraft.toml";
 
 /// What a world was last played with.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -168,9 +172,16 @@ fn inventory<R: std::io::Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, dep
     }
 }
 
+/// A world's record of its last play: Asteria's, or Omacraft's if that one is newer.
 pub fn read_record(world: &Path) -> Option<Record> {
-    let bytes = fsutil::read_capped(std::fs::File::open(world.join(RECORD)).ok()?).ok()?;
-    toml::from_str(&String::from_utf8_lossy(&bytes)).ok()
+    let read = |name: &str| -> Option<Record> {
+        let bytes = fsutil::read_capped(std::fs::File::open(world.join(name)).ok()?).ok()?;
+        toml::from_str(&String::from_utf8_lossy(&bytes)).ok()
+    };
+    match (read(RECORD), read(LEGACY_RECORD)) {
+        (Some(new), Some(old)) => Some(if old.played > new.played { old } else { new }),
+        (new, old) => new.or(old),
+    }
 }
 
 /// What a game was started with, taken as it starts and kept for the records written
@@ -373,7 +384,7 @@ pub fn behind(inst: &Instance) -> Vec<(saves::World, Drift)> {
 /// the log. Never fails: the game launches either way.
 pub fn check(inst: &Instance) -> Vec<String> {
     let owner = Owner::of(inst);
-    // Reading every jar is the slow part; worlds never played through Omacraft don't need it.
+    // Reading every jar is the slow part; worlds never played through Asteria don't need it.
     let mut here = None;
     let mut notes = Vec::new();
     for w in saves::list_worlds(&inst.saves_dir()) {
@@ -749,6 +760,29 @@ mod tests {
         std::fs::remove_dir_all(inst.dir()).unwrap();
     }
 
+    #[test]
+    fn records_are_read_under_either_name() {
+        let mut inst = Instance::new("legacy records", "1.21.1", Loader::Fabric("0.16.5".into()));
+        inst.assign_id().unwrap();
+        fabric_jar(&inst, "sodium.jar", "sodium", "0.6.0");
+        let w = world(&inst.saves_dir(), "Old");
+        // A record Omacraft wrote.
+        let then = Utc::now() - chrono::Duration::hours(1);
+        assert!(record_plays(&Loadout::of(&inst), &[(w.clone(), then)]).is_empty());
+        std::fs::rename(w.join(RECORD), w.join(LEGACY_RECORD)).unwrap();
+        assert_eq!(read_record(&w).unwrap().played, then);
+        // Asteria writes its own beside it, and the newer of the two counts.
+        let now = Utc::now();
+        assert!(record_plays(&Loadout::of(&inst), &[(w.clone(), now)]).is_empty());
+        assert!(w.join(RECORD).is_file() && w.join(LEGACY_RECORD).is_file());
+        assert_eq!(read_record(&w).unwrap().played, now);
+        // A newer Omacraft play (a world shared with it) wins over an older Asteria one.
+        std::fs::rename(w.join(LEGACY_RECORD), w.join("swap")).unwrap();
+        std::fs::rename(w.join(RECORD), w.join(LEGACY_RECORD)).unwrap();
+        std::fs::rename(w.join("swap"), w.join(RECORD)).unwrap();
+        assert_eq!(read_record(&w).unwrap().played, now);
+        std::fs::remove_dir_all(inst.dir()).unwrap();
+    }
 
     /// A child process holding a POSIX write lock on a world's session.lock until dropped:
     /// this test binary again, running [`hold_lock_helper`].
@@ -759,13 +793,13 @@ mod tests {
             use std::io::BufRead;
             let mut child = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", "world_sets::tests::hold_lock_helper", "--ignored", "--nocapture", "--test-threads=1"])
-                .env("OMACRAFT_TEST_LOCK", world.join("session.lock"))
+                .env("ASTERIA_TEST_LOCK", world.join("session.lock"))
                 .stdout(std::process::Stdio::piped())
                 .spawn()
                 .unwrap();
             let out = std::io::BufReader::new(child.stdout.take().unwrap());
             // libtest prints the test's name first, on the same line.
-            assert!(out.lines().map_while(Result::ok).any(|l| l.ends_with("omacraft-test-locked")), "helper couldn't lock");
+            assert!(out.lines().map_while(Result::ok).any(|l| l.ends_with("asteria-test-locked")), "helper couldn't lock");
             Holder(child)
         }
 
@@ -788,13 +822,13 @@ mod tests {
     fn hold_lock_helper() {
         use std::io::Write;
         use std::os::fd::AsRawFd;
-        let Some(path) = std::env::var_os("OMACRAFT_TEST_LOCK") else { return };
+        let Some(path) = std::env::var_os("ASTERIA_TEST_LOCK") else { return };
         let f = std::fs::File::options().create(true).truncate(false).read(true).write(true).open(path).unwrap();
         let mut fl: libc::flock = unsafe { std::mem::zeroed() };
         fl.l_type = libc::F_WRLCK as _;
         fl.l_whence = libc::SEEK_SET as _;
         assert_eq!(unsafe { libc::fcntl(f.as_raw_fd(), libc::F_SETLK, &fl) }, 0);
-        println!("omacraft-test-locked");
+        println!("asteria-test-locked");
         std::io::stdout().flush().unwrap();
         std::thread::sleep(std::time::Duration::from_secs(60));
     }

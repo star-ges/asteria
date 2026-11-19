@@ -389,7 +389,7 @@ impl PointerHandler for State {
 }
 
 impl DataDeviceHandler for State {
-    // Omacraft: take file drops (`text/uri-list`), since winit has no drag and drop on Wayland.
+    // Asteria: take file drops (`text/uri-list`), since winit has no drag and drop on Wayland.
     fn enter(
         &mut self,
         _: &Connection,

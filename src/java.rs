@@ -64,7 +64,11 @@ pub fn java_binary(component: &str) -> PathBuf {
 /// Make sure Mojang's runtime `component` is installed; returns its java.
 pub async fn ensure_runtime(task: &Task, component: &str) -> anyhow::Result<PathBuf> {
     let dir = runtime_dir(component);
-    let marker = dir.join(".omacraft-version");
+    let marker = dir.join(".asteria-version");
+    // Runtimes Omacraft installed carry its marker; they count as installed too.
+    let installed = [&marker, &dir.join(".omacraft-version")]
+        .iter()
+        .find_map(|m| std::fs::read_to_string(m).ok());
     let java = java_binary(component);
 
     let all: HashMap<String, HashMap<String, Vec<RuntimeEntry>>> =
@@ -82,7 +86,7 @@ pub async fn ensure_runtime(task: &Task, component: &str) -> anyhow::Result<Path
         .and_then(|v| v.first())
         .with_context(|| format!("Mojang has no {component} runtime for {PLATFORM}; set a Java override in settings"))?;
 
-    if java.exists() && std::fs::read_to_string(&marker).ok().as_deref() == Some(entry.version.name.as_str()) {
+    if java.exists() && installed.as_deref() == Some(entry.version.name.as_str()) {
         return Ok(java);
     }
 

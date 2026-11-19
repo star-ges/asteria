@@ -1,9 +1,9 @@
 [package]
-name = "omacraft"
+name = "asteria"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/star-ges/omacraft"
+repository = "https://github.com/star-ges/asteria"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -27,6 +27,9 @@ rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal", 
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha1 = "0.11.0"
+# The desktop portal's light/dark setting (winit reports none on Linux). Already built
+# for AccessKit; the blocking API is the one feature added.
+zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 # egui's Wayland clipboard, patched (below) to also take file drops: winit has none on Wayland.
 smithay-clipboard = "0.7.3"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "fs", "process", "io-util", "sync", "time"] }

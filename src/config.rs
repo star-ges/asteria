@@ -4,14 +4,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::paths;
 
-/// Omacraft's Azure app registration, approved by Mojang for the Minecraft API.
+/// Asteria's Azure app registration (made for Omacraft, which Asteria continues), approved by
+/// Mojang for the Minecraft API. Kept so nobody has to sign in again.
 pub const DEFAULT_CLIENT_ID: &str = "5f3b9b5e-4f2d-4fa7-a1e2-cbb4260041ed";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Override for the Azure app (client) ID used for Microsoft sign-in.
-    /// Empty means Omacraft's own ID. Can also be set with OMACRAFT_MSA_CLIENT_ID.
+    /// Empty means Asteria's own ID. Can also be set with ASTERIA_MSA_CLIENT_ID
+    /// (or Omacraft's OMACRAFT_MSA_CLIENT_ID).
     pub msa_client_id: String,
     /// Default max heap for new instances, in MiB.
     pub default_memory_mb: u32,
@@ -66,8 +68,9 @@ impl Config {
     }
 
     pub fn client_id(&self) -> String {
-        std::env::var("OMACRAFT_MSA_CLIENT_ID")
-            .ok()
+        ["ASTERIA_MSA_CLIENT_ID", "OMACRAFT_MSA_CLIENT_ID"]
+            .iter()
+            .find_map(|k| std::env::var(k).ok().filter(|s| !s.trim().is_empty()))
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .or_else(|| Some(self.msa_client_id.trim().to_string()).filter(|s| !s.is_empty()))

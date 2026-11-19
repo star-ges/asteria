@@ -15,6 +15,7 @@ mod keymap;
 mod java;
 mod launch;
 mod loaders;
+mod migrate;
 mod mod_config;
 mod modrinth;
 mod mod_sets;
@@ -40,6 +41,21 @@ fn main() -> eframe::Result {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if !args.is_empty() {
+        let help = matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help"));
+        if !help {
+            match migrate::run() {
+                Ok(migrate::Outcome::Moved) => eprintln!("Moved Omacraft's instances and settings over to Asteria."),
+                Ok(migrate::Outcome::OmacraftRunning) => {
+                    eprintln!("error: Omacraft is running. Quit it so Asteria can move its instances over, then try again.");
+                    std::process::exit(1);
+                }
+                Ok(migrate::Outcome::Nothing) => {}
+                Err(e) => {
+                    eprintln!("error: {e:#}");
+                    std::process::exit(1);
+                }
+            }
+        }
         std::process::exit(rt.block_on(cli::run(args)));
     }
 
@@ -54,13 +70,84 @@ fn main() -> eframe::Result {
         wgpu_options,
         viewport: egui::ViewportBuilder::default()
             .with_app_id(paths::APP_ID)
-            .with_title("Omacraft")
+            .with_title("Asteria")
             .with_inner_size([1100.0, 720.0])
             // Decorated, so other desktops give it a title bar: Hyprland asks for server-side
-            // decorations and draws none, so Omarchy windows still have no title bar.
+            // decorations and draws none, so there the window has no title bar.
             .with_min_inner_size([760.0, 480.0]),
         ..Default::default()
     };
     let handle = rt.handle().clone();
-    eframe::run_native("Omacraft", options, Box::new(move |cc| Ok(Box::new(ui::App::new(cc, handle)))))
+    eframe::run_native(
+        "Asteria",
+        options,
+        Box::new(move |cc| {
+            let mut root = Root { rt: handle, app: None, waiting: None, next_try: std::time::Instant::now() };
+            root.start(&cc.egui_ctx);
+            Ok(Box::new(root))
+        }),
+    )
+}
+
+/// The window: the app, or, while Omacraft's files can't be moved over yet (it's running),
+/// a page saying so. The app isn't started meanwhile, so no `asteria` folder appears that
+/// would stop the move for good.
+struct Root {
+    rt: tokio::runtime::Handle,
+    app: Option<Box<ui::App>>,
+    waiting: Option<String>,
+    next_try: std::time::Instant,
+}
+
+impl Root {
+    fn start(&mut self, ctx: &egui::Context) {
+        match migrate::run() {
+            Ok(migrate::Outcome::OmacraftRunning) => {
+                self.waiting = Some("Omacraft is running. Quit it so Asteria can move your instances over; Asteria carries on by itself once it has.".into());
+            }
+            Ok(outcome) => {
+                let mut app = ui::App::new(ctx, self.rt.clone());
+                if outcome == migrate::Outcome::Moved {
+                    app.toast(ui::ToastKind::Info, "Moved your instances and settings over from Omacraft. If you still run Omacraft, it now uses the same files.");
+                }
+                self.app = Some(Box::new(app));
+                self.waiting = None;
+            }
+            Err(e) => self.waiting = Some(format!("Couldn't move Omacraft's files over: {e:#}")),
+        }
+        if self.app.is_none() {
+            theme::Theme::starshell(theme::system_prefers_dark()).apply(ctx);
+        }
+        self.next_try = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    }
+}
+
+impl eframe::App for Root {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        if let Some(app) = &mut self.app {
+            return eframe::App::ui(app.as_mut(), ui, frame);
+        }
+        let ctx = ui.ctx().clone();
+        if std::time::Instant::now() >= self.next_try {
+            self.start(&ctx);
+            if self.app.is_some() {
+                return;
+            }
+        }
+        ctx.request_repaint_after(std::time::Duration::from_secs(2));
+        let t = theme::Theme::starshell(theme::system_prefers_dark());
+        egui::CentralPanel::default().show(ui, |ui| {
+            ui.add_space(ui.available_height() * 0.3);
+            ui.vertical_centered(|ui| {
+                ui.set_max_width(520.0);
+                ui::widgets::heading(ui, &t, "Waiting for Omacraft");
+                ui.add_space(8.0);
+                ui::widgets::para(ui, egui::RichText::new(self.waiting.as_deref().unwrap_or_default()).color(t.fg));
+                ui.add_space(12.0);
+                if ui::widgets::button(ui, "try again").clicked() {
+                    self.start(&ctx);
+                }
+            });
+        });
+    }
 }

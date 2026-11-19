@@ -1,14 +1,18 @@
-# Omacraft
+# Asteria
 
-![Omacraft showing an instance's mods beside Modrinth search](docs/screenshots/Title%20Screenshot.png)
+![Asteria showing an instance's mods beside Modrinth search](docs/screenshots/Title%20Screenshot.png)
 
-A Minecraft launcher in Rust, modeled on [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher)
-and drawn in [Omarchy](https://omarchy.org)'s design language.
+A Minecraft launcher in Rust for Linux, modeled on [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher)
+and drawn in the StarShell design language: big type, hairlines, a calm palette and one accent.
+
+Asteria continues [Omacraft](https://github.com/star-ges/omacraft) under a new name and a new design.
+Omacraft's instances, worlds, accounts and settings move over by themselves (see
+[Coming from Omacraft](#coming-from-omacraft)).
 
 It does what most players use Prism for (instances, every major loader, Modrinth, Prism and MultiMC
 imports) and adds the things Prism leaves to you: finding the mod that broke your game, editing mod and
 shader configs, backing up worlds before anything can harm them, and sharing files between instances
-without copying them. It follows your Omarchy theme and changes with it, and you can drive the whole
+without copying them. It follows your desktop's light or dark setting, and you can drive the whole
 thing with vim-style keys or just use the mouse.
 
 ## Install
@@ -16,35 +20,35 @@ thing with vim-style keys or just use the mouse.
 On Linux (x86_64) with [Rust](https://rustup.rs) 1.95 or newer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/star-ges/omacraft/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/star-ges/asteria/main/install.sh | bash
 ```
 
 It builds the latest release and installs it for your user (`~/.local`), with a desktop entry and icon.
-Omacraft runs under Wayland or X11 and uses the XDG desktop portal for file pickers. Java isn't needed:
-Omacraft downloads the runtime each Minecraft version expects.
+Asteria runs under Wayland or X11 and uses the XDG desktop portal for file pickers. Java isn't needed:
+Asteria downloads the runtime each Minecraft version expects.
 
-To update, run the same command again: it always fetches the latest release. To build the latest `master`
-instead (newer, less tested), add `--master`:
+To update, run the same command again: it always fetches the latest release. To build the latest `main`
+instead (newer, less tested), add `--main`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/star-ges/omacraft/master/install.sh | bash -s -- --master
+curl -fsSL https://raw.githubusercontent.com/star-ges/asteria/main/install.sh | bash -s -- --main
 ```
 
-From a clone, `./install.sh` builds whatever is checked out. To update to the latest release, or to `master`:
+From a clone, `./install.sh` builds whatever is checked out. To update to the latest release, or to `main`:
 
 ```sh
 git fetch --tags && git checkout "$(git tag -l 'v*' --sort=-v:refname | head -n1)"   # latest release
-git switch master && git pull                                                       # or latest master
+git switch main && git pull                                                       # or latest main
 ./install.sh
 ```
 
-Only what changed is rebuilt. A running Omacraft keeps working and picks up the new version when you
+Only what changed is rebuilt. A running Asteria keeps working and picks up the new version when you
 restart it.
 
 To uninstall, run `./uninstall.sh` from a clone, or:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/star-ges/omacraft/master/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/star-ges/asteria/main/uninstall.sh | bash
 ```
 
 That keeps your instances, worlds and accounts. To delete those as well, add `--purge` (`./uninstall.sh --purge`,
@@ -54,19 +58,19 @@ or `| bash -s -- --purge`); it asks before deleting anything.
 <summary>By hand</summary>
 
 ```sh
-git clone https://github.com/star-ges/omacraft
-cd omacraft
+git clone https://github.com/star-ges/asteria
+cd asteria
 cargo build --release
-install -Dm755 target/release/omacraft ~/.local/bin/omacraft
-install -Dm644 packaging/omacraft.desktop ~/.local/share/applications/omacraft.desktop
-install -Dm644 packaging/omacraft.svg ~/.local/share/icons/hicolor/scalable/apps/omacraft.svg
+install -Dm755 target/release/asteria ~/.local/bin/asteria
+install -Dm644 packaging/asteria.desktop ~/.local/share/applications/asteria.desktop
+install -Dm644 packaging/asteria.svg ~/.local/share/icons/hicolor/scalable/apps/asteria.svg
 ```
 
-To remove it, delete those three files; your data is in `~/.local/share/omacraft` and `~/.config/omacraft`.
+To remove it, delete those three files; your data is in `~/.local/share/asteria` and `~/.config/asteria`.
 
 </details>
 
-## What Omacraft adds
+## What Asteria adds
 
 ### When something breaks
 
@@ -76,13 +80,13 @@ To remove it, delete those three files; your data is in `~/.local/share/omacraft
   words. Disable the suspect right there, or copy a summary for a bug report.
 - **Find the breaking mod**: `b` in the mods tab (or the crash analysis) turns about half the mods off at
   a time, always keeping each mod's dependencies on. You play and say whether the problem occurred, and a
-  few games later Omacraft names the mod, then puts everything back exactly as it was, even after a crash
+  few games later Asteria names the mod, then puts everything back exactly as it was, even after a crash
   halfway through.
 
   ![Find the breaking mod](docs/screenshots/find%20the%20breaking%20mod.png)
 
 - **Updates you can undo**: `u` in the mods tab updates every mod from Modrinth, `shift+u` just one. Before
-  anything changes, Omacraft backs up `mods`, `config` and any world without a recent backup. `z` rolls the
+  anything changes, Asteria backs up `mods`, `config` and any world without a recent backup. `z` rolls the
   mods back and offers to restore each world that was played with the newer ones.
 
 ### Configs without leaving the launcher
@@ -129,12 +133,12 @@ To remove it, delete those three files; your data is in `~/.local/share/omacraft
 - **Copy settings**: a new instance can start with another one's keybinds, FOV and sound (`options.txt`),
   copied once rather than shared, since older versions drop settings they don't know.
 
-For more details, see [How Omacraft handles game files](#how-omacraft-handles-game-files).
+For more details, see [How Asteria handles game files](#how-asteria-handles-game-files).
 
-### Made for Omarchy and the keyboard
+### Made for the desktop and the keyboard
 
-- **Live theming**: colours, fonts and borders come from your Omarchy theme and change with it. Elsewhere
-  it uses Omarchy's Tokyo Night.
+- **Light and dark**: follows your desktop's colour scheme (the XDG portal setting GNOME, KDE and
+  StarShell all set) and changes with it.
 - **Keyboard first**: `h`/`l` move between panes and `j`/`k` within them, `enter` does the obvious
   thing (play, join, install, open) and `p` plays from anywhere. The bottom bar shows the keys for the
   focused pane, `?` lists them all, and every key can be rebound in **settings → keys** or in `config.toml`:
@@ -146,16 +150,15 @@ For more details, see [How Omacraft handles game files](#how-omacraft-handles-ga
 - **Drag and drop**, on Wayland too: drop mods, resource packs or shader packs on their tab, a world folder or
   `.zip` on the worlds tab, a skin on the accounts tab, and a pack or instance anywhere else to import it.
   Nothing already there is ever replaced.
-- **CLI**, for Hyprland binds or the Omarchy menu:
+- **CLI**, for compositor key binds and scripts:
   ```
-  omacraft list                 # grouped like the sidebar; tab-separated when piped
-  omacraft launch <instance>
-  omacraft create <name> <version> [fabric|quilt|forge|neoforge]
-  omacraft mod add <instance> <modrinth-slug>
-  omacraft import <zip|mrpack|folder|url>
-  omacraft export <instance> <file.zip|file.mrpack>
-  omacraft reclaim              # merge duplicate mods/packs across instances
-  omacraft theme
+  asteria list                 # grouped like the sidebar; tab-separated when piped
+  asteria launch <instance>
+  asteria create <name> <version> [fabric|quilt|forge|neoforge]
+  asteria mod add <instance> <modrinth-slug>
+  asteria import <zip|mrpack|folder|url>
+  asteria export <instance> <file.zip|file.mrpack>
+  asteria reclaim              # merge duplicate mods/packs across instances
   ```
 
 ## Everything you'd expect
@@ -196,17 +199,17 @@ For more details, see [How Omacraft handles game files](#how-omacraft-handles-ga
 
 - **CurseForge**: no CurseForge packs or downloads (they need an API key, and many files forbid
   third-party downloads). Modrinth only.
-- **Other platforms**: Prism also runs on Windows and macOS, and on ARM. Omacraft launches games on
+- **Other platforms**: Prism also runs on Windows and macOS, and on ARM. Asteria launches games on
   x86_64 Linux only.
 - **Legacy loaders**: no LiteLoader, and no Forge before 1.6.
 
-## How Omacraft handles game files
+## How Asteria handles game files
 
 Every instance stays a normal `.minecraft` folder that Minecraft, and you, can use as usual. On top of that:
 
 - **Each download is stored once.** Mods and packs from Modrinth go into a content store and are copied into
   each instance. On btrfs or xfs those copies are reflinks, so they take no extra space, yet every instance
-  can still change its own files freely. **settings → reclaim disk space** (or `omacraft reclaim`) merges
+  can still change its own files freely. **settings → reclaim disk space** (or `asteria reclaim`) merges
   identical files that arrived some other way. It only merges files whose bytes match exactly, through
   the kernel's dedupe call, which checks them first.
 - **Share sets** share resource packs, shader packs and schematics between instances. Pick one under
@@ -216,8 +219,8 @@ Every instance stays a normal `.minecraft` folder that Minecraft, and you, can u
   are named groups rather than one global pool.
 - **World sets** share worlds between instances that play the same Minecraft version and loader, for
   example two Fabric instances with different client mods. Pick one under **world set**. When one member
-  changes version, Omacraft asks whether to change the whole set or leave it with a copy of the worlds.
-  Each world records which instance last played it and with which mods (`omacraft.toml` in the world).
+  changes version, Asteria asks whether to change the whole set or leave it with a copy of the worlds.
+  Each world records which instance last played it and with which mods (`asteria.toml` in the world).
   Before any instance starts, a world last played with a mod it lacks, a newer version of one or a newer
   Minecraft gets a warning in the log and a backup first. It never blocks the launch.
 - **Game settings are copied, not shared.** The new-instance dialog can copy `options.txt` (keybinds, FOV,
@@ -228,38 +231,48 @@ Every instance stays a normal `.minecraft` folder that Minecraft, and you, can u
   restore or delete, and worlds you deleted stay listed by their backups. Restoring backs up what's there
   first. Backups are reflink copies too, so on btrfs they cost only what changed.
 - **Mod updates and rollback.** In the mods tab, `u` checks Modrinth for updates and installs them all, and
-  `shift+u` updates one. Before anything changes, Omacraft backs up the instance's `mods` and `config`
+  `shift+u` updates one. Before anything changes, Asteria backs up the instance's `mods` and `config`
   and any world without a recent backup, and stops if that fails. `z` rolls the mods back to such a
   backup and offers to restore each world that was played with the newer mods.
 
 Exports always contain real files, never links, so a shared instance exports like any other.
 
-## Omarchy integration
+## Desktop integration
 
-| What | Source |
+| What | How |
 |---|---|
-| Palette | `~/.local/state/omarchy/current/theme/colors.toml` |
-| Control and menu states | `[controls]` and `[menu]` in the generated `shell.toml`, as the Omarchy shell's menus use |
-| Modal and toast border | `[hyprland] active-border` (your window border colour) |
-| Font and size | fontconfig `monospace` (what `omarchy font set` writes) and `[font] base-size`; icons from a Nerd Font, with one bundled as a fallback |
+| Light and dark | The XDG desktop portal's `org.freedesktop.appearance color-scheme`, watched live |
+| Window | Wayland app-id `asteria`, for window rules. Decorated: compositors that draw no title bar (Hyprland) give it none, others give it their usual one |
+| File pickers | The XDG desktop portal |
+| Icons in the UI | A Nerd Font, with one bundled as a fallback (Phosphor in a later release) |
 
-Outside Omarchy it uses Omarchy's stock Tokyo Night theme. On Omarchy the window has no title bar, like
-every other Omarchy window; other desktops give it their usual one. Its Wayland app-id is `omacraft`, for
-window rules.
+## Coming from Omacraft
+
+The first time Asteria starts (or runs any CLI command), it moves `~/.local/share/omacraft` and
+`~/.config/omacraft` to `asteria` and leaves a link with the old name in their place. That's a rename,
+so it's instant and costs no space. The link keeps everything that still names the old path working,
+including an Omacraft you still have installed, which then uses the same files.
+
+- Nothing moves while Omacraft is running: Asteria waits, and carries on by itself once it's quit.
+- Play records Omacraft wrote in your worlds (`omacraft.toml`) are still read; Asteria writes its own
+  (`asteria.toml`) beside them.
+- Microsoft sign-in uses the same app id, so you stay signed in.
+- `OMACRAFT_MSA_CLIENT_ID` still works; `ASTERIA_MSA_CLIENT_ID` takes precedence.
+- Key binds or scripts that call `omacraft …` need to call `asteria …` instead.
 
 ## Microsoft sign-in
 
-Omacraft ships its own Azure app ID, approved by Mojang for the Minecraft API, so sign-in works
-without any setup. The **settings → client id** field (or `OMACRAFT_MSA_CLIENT_ID`) is only for
-using a different Azure app; leave it empty otherwise. If you fork Omacraft, register your own
+Asteria ships its own Azure app ID, approved by Mojang for the Minecraft API, so sign-in works
+without any setup. The **settings → client id** field (or `ASTERIA_MSA_CLIENT_ID`) is only for
+using a different Azure app; leave it empty otherwise. If you fork Asteria, register your own
 Azure app and get it approved by Mojang rather than shipping this one. Prism's ID is licensed to
 Prism alone, so don't borrow it.
 
 ## Where things live
 
 ```
-~/.config/omacraft/config.toml
-~/.local/share/omacraft/
+~/.config/asteria/config.toml
+~/.local/share/asteria/
   instances/<id>/instance.toml
   instances/<id>/minecraft/        game dir (mods/, saves/, …)
   instances/<id>/mod_sets.toml     mod sets
@@ -281,7 +294,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for building, testing and how the code ma
 ## Credits
 
 The instance icons in `assets/icons/` are unmodified copies of [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher)'s
-(`launcher/resources/multimc/scalable/instances/`), apart from `omacraft.svg`. All but three are by Prism Launcher
+(`launcher/resources/multimc/scalable/instances/`), apart from `asteria.svg`. All but three are by Prism Launcher
 and its contributors (AutiOne, Boba, ely, Fulmine, gon sawa, Pankakes, tobimori, Zeke, Santiago Cézar),
 licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). `fabricmc.svg`, `quiltmc.svg` and
 `neoforged.svg` are the Fabric, Quilt and NeoForged logos, used only to identify those loaders. Their
@@ -290,7 +303,7 @@ artwork is openly licensed: Fabric's is Copyright 2016 FabricMC under Apache 2.0
 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) ([QuiltMC/art](https://github.com/QuiltMC/art)),
 and NeoForged's is by the NeoForged Project under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 ([neoforged/websites](https://github.com/neoforged/websites); redrawn as an SVG by Sefa Eyeoglu). None of those
-licenses cover trademarks: the names and logos belong to their projects, and Omacraft isn't affiliated with them.
+licenses cover trademarks: the names and logos belong to their projects, and Asteria isn't affiliated with them.
 
 `assets/fonts/SymbolsNerdFontMono-Regular.ttf` is [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts)'
 Symbols Only font v3.5.1 (MIT, see `SymbolsNerdFont-LICENSE`). It's bundled as a fallback so icons

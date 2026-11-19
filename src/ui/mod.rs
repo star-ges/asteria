@@ -209,15 +209,15 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, rt: tokio::runtime::Handle) -> Self {
-        let t = Theme::load();
-        egui_extras::install_image_loaders(&cc.egui_ctx);
-        let ctx = cc.egui_ctx.clone();
+    pub fn new(egui_ctx: &egui::Context, rt: tokio::runtime::Handle) -> Self {
+        let t = Theme::starshell(theme::system_prefers_dark());
+        egui_extras::install_image_loaders(egui_ctx);
+        let ctx = egui_ctx.clone();
         smithay_clipboard::set_drop_notify(move || ctx.request_repaint());
         let fonts = FontSet::resolve();
-        fonts.apply(&cc.egui_ctx);
-        t.apply(&cc.egui_ctx);
-        let watcher = theme::spawn_watcher(cc.egui_ctx.clone());
+        fonts.apply(egui_ctx);
+        t.apply(egui_ctx);
+        let watcher = theme::spawn_watcher(egui_ctx.clone());
         let instances = instance::load_all();
         let cfg = Config::load();
         let mut groups = crate::groups::Groups::load();
@@ -268,7 +268,7 @@ impl App {
             group_buf: String::new(),
             toasts: Vec::new(),
         };
-        app.load_manifest(&cc.egui_ctx);
+        app.load_manifest(egui_ctx);
         app
     }
 
@@ -682,7 +682,7 @@ impl App {
             .frame(egui::Frame::new().fill(t.bg).inner_margin(egui::Margin::symmetric(14, 0)))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.label(RichText::new("󰍳 Omacraft").font(theme::bold(t.body_size())).color(t.accent));
+                    ui.label(RichText::new("󰍳 Asteria").font(theme::bold(t.body_size())).color(t.accent));
                     ui.add_space(18.0);
                     for (tab, key, label) in Tab::ALL {
                         let on = self.tab == tab;
@@ -1046,7 +1046,7 @@ impl App {
                     self.toast(ToastKind::Error, format!("Can't delete {name} while {why}"));
                     return;
                 }
-                // Its backups are locked first: a job in another Omacraft may be using them.
+                // Its backups are locked first: a job in another Asteria may be using them.
                 let backups = match crate::backups::lock_instance(id) {
                     Ok(b) => b,
                     Err(e) => {

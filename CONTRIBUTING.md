@@ -5,12 +5,12 @@
 ```sh
 cargo build --release
 cargo test                                          # unit tests
-OMACRAFT_FIXTURE=<copy of a .minecraft> cargo test  # adds NBT round-trips on real saves
+ASTERIA_FIXTURE=<copy of a .minecraft> cargo test  # adds NBT round-trips on real saves
 cargo test -- --ignored                             # adds network tests (Modrinth)
 ```
 
 Tests never touch your real data: under `cfg(test)` the data and config dirs live in
-`/tmp/omacraft-test-<pid>`. To try the GUI on scratch data, set `XDG_DATA_HOME` and
+`/tmp/asteria-test-<pid>`. To try the GUI on scratch data, set `XDG_DATA_HOME` and
 `XDG_CONFIG_HOME` to an empty directory. When test-launching Minecraft, unset `WAYLAND_DISPLAY`
 as well as `DISPLAY` so no game window opens on your desktop (LWJGL uses Wayland).
 
@@ -39,20 +39,21 @@ surrounding style. Keep the build free of warnings.
 
 ## Behaviour rules
 
-Much of Omacraft moves, links or rewrites the player's files: shared folders, backups, mod updates and
+Much of Asteria moves, links or rewrites the player's files: shared folders, backups, mod updates and
 rollbacks, the search for the breaking mod, config edits. [AGENTS.md](AGENTS.md) lists the rules each of
 these keeps (no file is ever replaced by a move, every multi-step change can be finished or undone after
 a crash, jobs on the same files wait for each other), each with the regression tests that cover it.
 Read the rule before changing an area, and add a test (and a rule) with any fix that sets a new one.
 
-## Theme reloads
+## Light and dark
 
-`omarchy theme set` swaps the theme directory with `mv`, so Omacraft polls the theme files and
-fontconfig rather than holding an inotify watch on a directory that is about to be replaced.
+winit reports no system theme on Linux, so `theme.rs` reads the XDG desktop portal's
+`org.freedesktop.appearance color-scheme` over D-Bus and follows its `SettingChanged` signal.
+fontconfig is polled.
 
 ## Code map (vs. Prism)
 
-| Omacraft | Prism |
+| Asteria | Prism |
 |---|---|
 | `mojang.rs`: version JSON, rules, maven paths, profile merging | `minecraft/MojangVersionFormat`, `Library`, `Rule` |
 | `loaders.rs`: Fabric/Quilt meta, Prism meta for Forge/NeoForge | `meta/` + component patches |
@@ -70,13 +71,13 @@ fontconfig rather than holding an inotify watch on a directory that is about to 
 | `icons.rs` | `icons/IconList` |
 | `theme.rs`, `ui/` | `ui/` (Qt) |
 
-Omacraft's own, with no Prism counterpart:
+Asteria's own, with no Prism counterpart:
 
 | Module | What it does |
 |---|---|
 | `store.rs` | Content store: downloads kept once by SHA-1, reflinked into instances; `reclaim` dedupes with `FIDEDUPERANGE` |
 | `shares.rs` | Share sets and world sets: an instance's folders become relative links into `shared/` |
-| `world_sets.rs` | One version and loader per world set, play records (`omacraft.toml`) in each world, the pre-launch mod check |
+| `world_sets.rs` | One version and loader per world set, play records (`asteria.toml`, still reading Omacraft's `omacraft.toml`) in each world, the pre-launch mod check |
 | `backups.rs` | Reflink snapshots of worlds and of `mods` + `config`, restore, rollback, pruning, crash recovery |
 | `fsutil.rs` | Reflink copies, `rename_noreplace`, journalled `swap_in`, `flock` helpers, capped reads |
 | `crash.rs` | Crash analysis: suspects from crash reports and logs, with how sure it is |

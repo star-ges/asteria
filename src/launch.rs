@@ -18,7 +18,7 @@ use crate::net::{self, Download};
 use crate::task::Task;
 use crate::{java, loaders, paths};
 
-pub const LAUNCHER_NAME: &str = "omacraft";
+pub const LAUNCHER_NAME: &str = "asteria";
 
 /// Jump straight into a world or server once the game has loaded.
 #[derive(Debug, Clone)]
@@ -187,7 +187,7 @@ pub async fn resolve_version(inst: &Instance) -> anyhow::Result<VersionJson> {
 /// natives are picked for it, and elsewhere they'd be the wrong ones, half matched.
 pub fn check_platform(os: &str, arch: &str) -> anyhow::Result<()> {
     if os != "linux" || arch != "x86_64" {
-        bail!("unsupported platform: Omacraft launches games on x86_64 Linux only, and this is {arch} {os}");
+        bail!("unsupported platform: Asteria launches games on x86_64 Linux only, and this is {arch} {os}");
     }
     Ok(())
 }
@@ -619,7 +619,7 @@ async fn start(
 
     {
         let mut l = log.lock().unwrap();
-        l.push(LogLevel::Launcher, format!("Omacraft {} launching {}", env!("CARGO_PKG_VERSION"), inst.name));
+        l.push(LogLevel::Launcher, format!("Asteria {} launching {}", env!("CARGO_PKG_VERSION"), inst.name));
         l.push(LogLevel::Launcher, format!("minecraft {}  ·  {}", inst.mc_version, inst.loader.display()));
         l.push(LogLevel::Launcher, format!("java {}", prepared.java.display()));
         if !wrapper.is_empty() {
@@ -917,7 +917,7 @@ mod tests {
         inst.java_path = "/nonexistent/java".into();
         let (task, log) = (Task::new("t"), SharedLog::default());
         // Resolves the version, then fails on the missing Java. Either way the
-        // launch must end the task and the log, or `omacraft launch` hangs.
+        // launch must end the task and the log, or `asteria launch` hangs.
         let r = launch(task.clone(), inst, Config::default(), Account::offline("Steve"), "0".into(), log.clone(), None).await;
         assert!(r.is_err());
         assert!(matches!(task.status(), crate::task::TaskStatus::Failed(_)));

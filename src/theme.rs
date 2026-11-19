@@ -1,23 +1,24 @@
-//! Omarchy theme integration.
+//! Colours and fonts.
 //!
-//! The active theme lives in `~/.local/state/omarchy/current/theme`, which
-//! `omarchy theme set` replaces wholesale with `mv`. We read the palette from
-//! `colors.toml` and the control/menu tokens from the generated `shell.toml`
-//! (the same tokens the Omarchy shell's menus and launcher are drawn with),
-//! then poll for changes so the app re-skins live when the theme changes.
+//! Asteria is drawn in the StarShell design language: one surface colour, text in two
+//! neutrals, one accent for hover/focus/active/selected, plus a small set of earthy
+//! "clarity hues" used only for readability (groups, errors, warnings, statuses; never
+//! fills or state). Light and dark are two palettes with the same names. Which one is in
+//! use follows the desktop's colour scheme, read from the XDG desktop portal (the
+//! `org.freedesktop.appearance color-scheme` setting), so it works on any desktop with a
+//! portal and doesn't depend on StarShell itself.
+//!
+//! This is the Phase 1 stop-gap of the redesign (see `docs/asteria/ASTERIA_REDESIGN_PLAN.md`):
+//! the old widget kit reads these fields; Phase 2 replaces them with design tokens.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, Shadow, Stroke};
 
-use crate::paths;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
-    pub name: String,
     pub dark: bool,
 
     pub accent: Color32,
@@ -33,6 +34,9 @@ pub struct Theme {
     pub fg_dark: Color32,
     pub fg_light: Color32,
 
+    // Clarity hues, under the names groups store (`groups.toml`) so existing data maps on:
+    // red → clay, orange → sienna, yellow → ochre, green → olive, cyan → teal,
+    // blue → slate, magenta → plum. Each is at least 4.5:1 on its own background.
     pub red: Color32,
     pub yellow: Color32,
     pub orange: Color32,
@@ -41,10 +45,9 @@ pub struct Theme {
     pub blue: Color32,
     pub magenta: Color32,
 
-    /// Hyprland active window border; Omarchy draws popups/menus with it.
+    /// Frames of dialogs and notices: the strong hairline colour.
     pub border_active: Color32,
 
-    // [controls] from shell.toml
     pub normal_fill_alpha: f32,
     pub normal_border_alpha: f32,
     pub hover_fill_alpha: f32,
@@ -53,7 +56,6 @@ pub struct Theme {
     pub pressed_fill_alpha: f32,
     pub selection_fill_alpha: f32,
 
-    // [menu] from shell.toml
     pub menu_selected_text: Color32,
     pub menu_selected_bg_alpha: f32,
     pub menu_selected_border_alpha: f32,
@@ -62,176 +64,102 @@ pub struct Theme {
     pub font_size: f32,
 }
 
-impl Default for Theme {
-    /// Omarchy's stock Tokyo Night (colors.toml plus the shell.toml Omarchy
-    /// generates from it), for running outside Omarchy. Kept identical by
-    /// the `fallback_is_omarchy_tokyo_night` test.
-    fn default() -> Self {
-        let c = |s| parse_color(s).unwrap();
-        Self {
-            name: "tokyo-night".into(),
-            dark: true,
-            accent: c("#7aa2f7"),
-            selection: c("#292e42"),
-            muted: c("#414868"),
-            bg: c("#1a1b26"),
-            bg_dark: c("#13141c"),
-            bg_darker: c("#0e0e14"),
-            bg_light: c("#24283b"),
-            fg: c("#a9b1d6"),
-            fg_dark: c("#565f89"),
-            fg_light: c("#b4bee6"),
-            red: c("#f7768e"),
-            yellow: c("#e0af68"),
-            orange: c("#eb927b"),
-            green: c("#9ece6a"),
-            cyan: c("#449dab"),
-            blue: c("#7aa2f7"),
-            magenta: c("#ad8ee6"),
-            border_active: c("#7aa2f7"),
-            normal_fill_alpha: 0.04,
-            normal_border_alpha: 0.4,
-            hover_fill_alpha: 0.08,
-            hover_border_alpha: 0.25,
-            selected_fill_alpha: 0.18,
-            pressed_fill_alpha: 0.22,
-            selection_fill_alpha: 0.35,
-            menu_selected_text: c("#7aa2f7"),
-            menu_selected_bg_alpha: 0.08,
-            menu_selected_border_alpha: 0.25,
-            scrim_alpha: 0.5,
-            font_size: 12.0,
-        }
-    }
+/// One palette of the StarShell design language (`Theme.qml` in StarShell).
+struct Palette {
+    background: Color32,
+    accent: Color32,
+    text_strong: Color32,
+    text_muted: Color32,
+    line_strong: Color32,
+    clay: Color32,
+    sienna: Color32,
+    ochre: Color32,
+    olive: Color32,
+    teal: Color32,
+    slate: Color32,
+    plum: Color32,
 }
 
-pub fn parse_color(s: &str) -> Option<Color32> {
-    let s = s.trim();
-    // Gradients ("rgba(..) rgba(..) 45deg") collapse to their first stop.
-    let s = s.split_whitespace().next()?;
-    if let Some(hex) = s.strip_prefix('#') {
-        let v = u32::from_str_radix(hex, 16).ok()?;
-        return match hex.len() {
-            6 => Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)),
-            8 => Some(Color32::from_rgba_unmultiplied(
-                (v >> 24) as u8,
-                (v >> 16) as u8,
-                (v >> 8) as u8,
-                v as u8,
-            )),
-            _ => None,
-        };
+const fn hex(v: u32) -> Color32 {
+    Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
+
+/// Cream. The accent is 4.7:1 on the background.
+const LIGHT: Palette = Palette {
+    background: hex(0xfef0d5),
+    accent: hex(0xad5034),
+    text_strong: hex(0x202020),
+    text_muted: hex(0x4c4c4c),
+    line_strong: hex(0x202020),
+    clay: hex(0xa33b30),
+    sienna: hex(0x94541f),
+    ochre: hex(0x8a6516),
+    olive: hex(0x566a2a),
+    teal: hex(0x2e6862),
+    slate: hex(0x35596f),
+    plum: hex(0x7d4a63),
+};
+
+/// "Inverted cream": a warm near-black. The accent is 5.6:1 on the background.
+const DARK: Palette = Palette {
+    background: hex(0x1c1a17),
+    accent: hex(0xf2683a),
+    text_strong: hex(0xe2d6bf),
+    text_muted: hex(0xa99f8d),
+    line_strong: hex(0x4e4941),
+    clay: hex(0xee7266),
+    sienna: hex(0xd68a4c),
+    ochre: hex(0xaa843b),
+    olive: hex(0x7c9251),
+    teal: hex(0x5a948d),
+    slate: hex(0x698fa7),
+    plum: hex(0xb17a94),
+};
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self::starshell(false)
     }
-    if let Some(inner) = s.strip_prefix("rgba(").or_else(|| s.strip_prefix("rgb(")) {
-        let hex = inner.trim_end_matches(')');
-        return parse_color(&format!("#{hex}"));
-    }
-    None
 }
 
 impl Theme {
-    pub fn load() -> Self {
-        Self::load_from(&paths::omarchy_theme_dir())
-    }
-
-    /// Read an Omarchy theme directory; anything missing keeps the fallback.
-    pub fn load_from(dir: &std::path::Path) -> Self {
-        let mut t = Theme::default();
-        let Ok(colors) = std::fs::read_to_string(dir.join("colors.toml")) else {
-            return t;
-        };
-        let Ok(colors) = colors.parse::<toml::Table>() else {
-            return t;
-        };
-        let get = |k: &str| colors.get(k).and_then(|v| v.as_str()).and_then(parse_color);
-
-        t.name = std::fs::read_to_string(dir.parent().unwrap_or(dir).join("theme.name"))
-            .map(|s| s.trim().to_string())
-            .unwrap_or_default();
-        t.dark = colors.get("mode").and_then(|v| v.as_str()) != Some("light");
-
-        macro_rules! set {
-            ($field:ident, $key:literal) => {
-                if let Some(c) = get($key) {
-                    t.$field = c;
-                }
-            };
-        }
-        set!(accent, "accent");
-        set!(selection, "selection");
-        set!(muted, "muted");
-        set!(bg, "background");
-        set!(fg, "foreground");
-        set!(red, "red");
-        set!(yellow, "yellow");
-        set!(orange, "orange");
-        set!(green, "green");
-        set!(cyan, "cyan");
-        set!(blue, "blue");
-        set!(magenta, "magenta");
-        // Optional keys: older themes omit these, so derive from bg/fg.
-        t.bg_dark = get("dark_background").unwrap_or_else(|| shade(t.bg, t.dark, 0.25));
-        t.bg_darker = get("darker_background").unwrap_or_else(|| shade(t.bg, t.dark, 0.45));
-        t.bg_light = get("lighter_background").unwrap_or_else(|| t.bg.lerp_to_gamma(t.fg, 0.08));
-        t.fg_dark = get("dark_foreground").unwrap_or(t.muted);
-        t.fg_light = get("light_foreground").unwrap_or(t.fg);
-        t.border_active = t.accent;
-        t.menu_selected_text = t.accent;
-
-        if let Ok(shell) = std::fs::read_to_string(dir.join("shell.toml"))
-            && let Ok(shell) = shell.parse::<toml::Table>()
-        {
-            t.apply_shell_tokens(&shell);
-        }
-        t
-    }
-
-    fn apply_shell_tokens(&mut self, shell: &toml::Table) {
-        let section = |name: &str| shell.get(name).and_then(|v| v.as_table());
-        let f = |tbl: Option<&toml::Table>, k: &str| {
-            tbl.and_then(|t| t.get(k)).and_then(|v| {
-                v.as_float().or_else(|| v.as_integer().map(|i| i as f64))
-            })
-        };
-        let hypr = section("hyprland");
-        if let Some(c) = hypr
-            .and_then(|h| h.get("active-border"))
-            .and_then(|v| v.as_str())
-            .and_then(parse_color)
-        {
-            self.border_active = c;
-        }
-
-        let ctl = section("controls");
-        macro_rules! alpha {
-            ($tbl:expr, $field:ident, $key:literal) => {
-                if let Some(v) = f($tbl, $key) {
-                    self.$field = v as f32;
-                }
-            };
-        }
-        alpha!(ctl, normal_fill_alpha, "normal-fill-alpha");
-        alpha!(ctl, normal_border_alpha, "normal-border-alpha");
-        alpha!(ctl, hover_fill_alpha, "hover-cursor-fill-alpha");
-        alpha!(ctl, hover_border_alpha, "hover-cursor-border-alpha");
-        alpha!(ctl, selected_fill_alpha, "selected-fill-alpha");
-        alpha!(ctl, pressed_fill_alpha, "pressed-fill-alpha");
-        alpha!(ctl, selection_fill_alpha, "selection-fill-alpha");
-
-        let menu = section("menu");
-        alpha!(menu, menu_selected_bg_alpha, "selected-background-alpha");
-        alpha!(menu, menu_selected_border_alpha, "selected-border-alpha");
-        alpha!(menu, scrim_alpha, "scrim-alpha");
-        if let Some(c) = menu
-            .and_then(|m| m.get("selected-text"))
-            .and_then(|v| v.as_str())
-            .and_then(parse_color)
-        {
-            self.menu_selected_text = c;
-        }
-
-        if let Some(size) = f(section("font"), "base-size") {
-            self.font_size = size as f32;
+    pub fn starshell(dark: bool) -> Self {
+        let p = if dark { &DARK } else { &LIGHT };
+        // Wells and raised surfaces are faint washes of the text colour on the one
+        // background (they go in Phase 2; nothing gets a second surface colour).
+        let wash = |a: f32| p.background.lerp_to_gamma(p.text_strong, a);
+        Self {
+            dark,
+            accent: p.accent,
+            selection: wash(0.12),
+            muted: p.text_muted,
+            bg: p.background,
+            bg_dark: wash(0.05),
+            bg_darker: wash(0.08),
+            bg_light: wash(0.06),
+            fg: p.text_strong,
+            fg_dark: p.text_muted,
+            fg_light: p.text_strong,
+            red: p.clay,
+            orange: p.sienna,
+            yellow: p.ochre,
+            green: p.olive,
+            cyan: p.teal,
+            blue: p.slate,
+            magenta: p.plum,
+            border_active: p.line_strong,
+            normal_fill_alpha: 0.0,
+            normal_border_alpha: 0.45,
+            hover_fill_alpha: 0.06,
+            hover_border_alpha: 0.25,
+            selected_fill_alpha: 0.12,
+            pressed_fill_alpha: 0.16,
+            selection_fill_alpha: 0.16,
+            menu_selected_text: p.accent,
+            menu_selected_bg_alpha: 0.06,
+            menu_selected_border_alpha: 0.0,
+            scrim_alpha: 0.5,
+            font_size: 12.0,
         }
     }
 
@@ -243,13 +171,12 @@ impl Theme {
         Self::alpha(self.fg, a)
     }
 
-    /// Body text size. Omarchy's base-size 12 is tuned for the bar; a full
-    /// window reads better slightly larger, scaled with the user's setting.
+    /// Body text size.
     pub fn body_size(&self) -> f32 {
         (self.font_size * 1.1).round()
     }
 
-    /// Palette colour by name, for things stored by name so they re-theme.
+    /// Clarity hue by its stored name (group colours are kept by name so they re-theme).
     pub fn named(&self, name: &str) -> Option<Color32> {
         Some(match name {
             "red" => self.red,
@@ -290,21 +217,22 @@ impl Theme {
             v.override_text_color = None;
             v.panel_fill = self.bg;
             v.window_fill = self.bg;
-            v.window_stroke = Stroke::new(2.0, self.border_active);
+            v.window_stroke = Stroke::new(1.0, self.border_active);
             v.window_corner_radius = square;
             v.menu_corner_radius = square;
             v.window_shadow = Shadow::NONE;
             v.popup_shadow = Shadow::NONE;
             v.extreme_bg_color = self.bg_dark;
-            v.text_edit_bg_color = Some(self.bg_dark);
+            v.text_edit_bg_color = Some(self.bg);
             v.code_bg_color = self.bg_dark;
             v.faint_bg_color = self.bg_light;
-            v.hyperlink_color = self.accent;
+            v.hyperlink_color = self.fg;
             v.warn_fg_color = self.yellow;
             v.error_fg_color = self.red;
             v.weak_text_color = Some(self.muted);
-            v.selection.bg_fill = Self::alpha(self.accent, self.selection_fill_alpha);
-            v.selection.stroke = Stroke::new(1.0, self.accent);
+            // Selections are a wash of the text colour, never an accent tint.
+            v.selection.bg_fill = self.fg_a(self.selection_fill_alpha);
+            v.selection.stroke = Stroke::new(1.0, self.fg);
             v.text_cursor.stroke = Stroke::new(2.0, self.accent);
             v.striped = false;
             v.slider_trailing_fill = true;
@@ -314,7 +242,7 @@ impl Theme {
             let w = &mut v.widgets;
             w.noninteractive.bg_fill = self.bg;
             w.noninteractive.weak_bg_fill = self.bg;
-            w.noninteractive.bg_stroke = Stroke::new(1.0, self.fg_a(0.12));
+            w.noninteractive.bg_stroke = Stroke::new(1.0, self.fg_a(0.2));
             w.noninteractive.fg_stroke = Stroke::new(1.0, self.fg);
 
             let fill = |a| self.fg_a(a);
@@ -326,7 +254,7 @@ impl Theme {
             w.hovered.bg_fill = fill(self.hover_fill_alpha);
             w.hovered.weak_bg_fill = fill(self.hover_fill_alpha);
             w.hovered.bg_stroke = Stroke::new(1.0, self.accent);
-            w.hovered.fg_stroke = Stroke::new(1.0, self.fg_light);
+            w.hovered.fg_stroke = Stroke::new(1.0, self.accent);
 
             w.active.bg_fill = fill(self.pressed_fill_alpha);
             w.active.weak_bg_fill = fill(self.pressed_fill_alpha);
@@ -346,14 +274,49 @@ impl Theme {
     }
 }
 
-fn shade(c: Color32, dark: bool, amt: f32) -> Color32 {
-    let target = if dark { Color32::BLACK } else { Color32::WHITE };
-    c.lerp_to_gamma(target, amt)
+// ---------------------------------------------------------------------------
+// The desktop's colour scheme, from the XDG desktop portal.
+
+const PORTAL: &str = "org.freedesktop.portal.Desktop";
+const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
+const SETTINGS: &str = "org.freedesktop.portal.Settings";
+const APPEARANCE: &str = "org.freedesktop.appearance";
+const COLOR_SCHEME: &str = "color-scheme";
+
+/// The portal's `color-scheme`: 1 is "prefer dark"; 0 (no preference) and 2 (prefer
+/// light) are light, the original palette.
+fn is_dark(value: &zbus::zvariant::Value) -> Option<bool> {
+    match value {
+        zbus::zvariant::Value::U32(n) => Some(*n == 1),
+        // `Read` (older portals) wraps the value in one more variant.
+        zbus::zvariant::Value::Value(inner) => is_dark(inner),
+        _ => None,
+    }
+}
+
+fn settings_proxy(conn: &zbus::blocking::Connection) -> zbus::Result<zbus::blocking::Proxy<'static>> {
+    zbus::blocking::Proxy::new(conn, PORTAL, PORTAL_PATH, SETTINGS)
+}
+
+fn read_scheme(proxy: &zbus::blocking::Proxy) -> Option<bool> {
+    let read = |method: &str| -> Option<bool> {
+        let v: zbus::zvariant::OwnedValue = proxy.call(method, &(APPEARANCE, COLOR_SCHEME)).ok()?;
+        is_dark(&v)
+    };
+    read("ReadOne").or_else(|| read("Read"))
+}
+
+/// Whether the desktop prefers dark, read once (used at start, before the first frame).
+pub fn system_prefers_dark() -> bool {
+    zbus::blocking::Connection::session()
+        .ok()
+        .and_then(|c| settings_proxy(&c).ok().and_then(|p| read_scheme(&p)))
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
-// Fonts: follow fontconfig's `monospace`, which is what `omarchy font set`
-// rewrites. A Nerd Font is chained in after it for icon glyphs.
+// Fonts: fontconfig's `monospace` until the Phase 2 type system (Switzer, Melodrama,
+// Phosphor) replaces it. A Nerd Font is chained in after it for icon glyphs.
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontSet {
@@ -399,12 +362,12 @@ impl FontSet {
             defs.font_data.insert(name.into(), Arc::new(FontData::from_owned(bytes)));
             true
         };
-        if load("omarchy-mono", &self.regular) {
-            mono.push("omarchy-mono".into());
+        if load("mono", &self.regular) {
+            mono.push("mono".into());
         }
-        let bold = load("omarchy-mono-bold", &self.bold);
-        if load("omarchy-icons", &self.icons) {
-            mono.push("omarchy-icons".into());
+        let bold = load("mono-bold", &self.bold);
+        if load("icons", &self.icons) {
+            mono.push("icons".into());
         }
         // Bundled last, so icons render even without a Nerd Font installed;
         // the system's own Nerd Font still wins when there is one.
@@ -414,13 +377,12 @@ impl FontSet {
         for (i, name) in mono.iter().enumerate() {
             fam.insert(i, name.clone());
         }
-        // Proportional text also renders in the mono face: Omarchy is mono-first.
         let prop = defs.families.entry(FontFamily::Proportional).or_default();
         for (i, name) in mono.iter().enumerate() {
             prop.insert(i, name.clone());
         }
         if bold {
-            let mut fam = vec!["omarchy-mono-bold".to_string()];
+            let mut fam = vec!["mono-bold".to_string()];
             fam.extend(mono.iter().skip(1).cloned());
             fam.extend(defs.families[&FontFamily::Monospace].iter().cloned());
             defs.families.insert(FontFamily::Name("bold".into()), fam);
@@ -447,37 +409,52 @@ pub struct Pending {
     pub fonts: Option<FontSet>,
 }
 
-/// Polls the theme directory and fontconfig for changes. Polling (rather than
-/// inotify) sidesteps the theme dir being replaced by `mv` under a watch.
+/// Watches the portal's colour scheme (a D-Bus signal) and fontconfig (polled), and
+/// leaves what changed in `Pending` for the next frame.
 pub fn spawn_watcher(ctx: egui::Context) -> Arc<Mutex<Pending>> {
     let pending = Arc::new(Mutex::new(Pending::default()));
+
+    let out = pending.clone();
+    let repaint = ctx.clone();
+    std::thread::spawn(move || {
+        loop {
+            // Each pass follows the portal until the connection ends, then reconnects
+            // (the portal may start after Asteria, or restart).
+            let _ = (|| -> zbus::Result<()> {
+                let conn = zbus::blocking::Connection::session()?;
+                let proxy = settings_proxy(&conn)?;
+                let signals = proxy.receive_signal("SettingChanged")?;
+                if let Some(dark) = read_scheme(&proxy) {
+                    out.lock().unwrap().theme = Some(Theme::starshell(dark));
+                    repaint.request_repaint();
+                }
+                for msg in signals {
+                    let Ok((ns, key, value)) = msg.body().deserialize::<(String, String, zbus::zvariant::OwnedValue)>() else {
+                        continue;
+                    };
+                    if ns == APPEARANCE && key == COLOR_SCHEME
+                        && let Some(dark) = is_dark(&value)
+                    {
+                        out.lock().unwrap().theme = Some(Theme::starshell(dark));
+                        repaint.request_repaint();
+                    }
+                }
+                Ok(())
+            })();
+            std::thread::sleep(Duration::from_secs(30));
+        }
+    });
+
     let out = pending.clone();
     std::thread::spawn(move || {
-        let theme_dir = paths::omarchy_theme_dir();
         let fonts_conf = dirs::config_dir().unwrap_or_default().join("fontconfig/fonts.conf");
-        let snapshot = || -> BTreeMap<&'static str, Vec<u8>> {
-            let mut m = BTreeMap::new();
-            for f in ["colors.toml", "shell.toml"] {
-                m.insert(f, std::fs::read(theme_dir.join(f)).unwrap_or_default());
-            }
-            m
-        };
         let mtime = |p: &PathBuf| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let mut last = snapshot();
-        let mut last_font: Option<SystemTime> = mtime(&fonts_conf);
+        let mut last: Option<SystemTime> = mtime(&fonts_conf);
         loop {
-            std::thread::sleep(Duration::from_millis(700));
-            let now = snapshot();
+            std::thread::sleep(Duration::from_secs(2));
+            let now = mtime(&fonts_conf);
             if now != last {
                 last = now;
-                // Give theme-set a moment to finish writing its files.
-                std::thread::sleep(Duration::from_millis(150));
-                out.lock().unwrap().theme = Some(Theme::load());
-                ctx.request_repaint();
-            }
-            let font = mtime(&fonts_conf);
-            if font != last_font {
-                last_font = font;
                 out.lock().unwrap().fonts = Some(FontSet::resolve());
                 ctx.request_repaint();
             }
@@ -490,15 +467,44 @@ pub fn spawn_watcher(ctx: egui::Context) -> Arc<Mutex<Pending>> {
 mod tests {
     use super::*;
 
-    /// Off Omarchy we fall back to Tokyo Night; it must match Omarchy's own.
+    fn luminance(c: Color32) -> f64 {
+        let f = |v: u8| {
+            let c = v as f64 / 255.0;
+            if c <= 0.03928 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * f(c.r()) + 0.7152 * f(c.g()) + 0.0722 * f(c.b())
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f64 {
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// Text, the accent and every clarity hue stay readable on their own background.
     #[test]
-    fn fallback_is_omarchy_tokyo_night() {
-        let dir = std::path::Path::new("/usr/share/omarchy/themes/tokyo-night");
-        if !dir.join("colors.toml").exists() {
-            return;
+    fn every_text_colour_is_at_least_4_5_to_1() {
+        for p in [&LIGHT, &DARK] {
+            for c in [p.accent, p.text_strong, p.text_muted, p.clay, p.sienna, p.ochre, p.olive, p.teal, p.slate, p.plum] {
+                assert!(contrast(c, p.background) >= 4.5, "{c:?} on {:?} is {:.2}:1", p.background, contrast(c, p.background));
+            }
         }
-        let mut stock = Theme::load_from(dir);
-        stock.name = "tokyo-night".into();
-        assert_eq!(stock, Theme::default());
+    }
+
+    #[test]
+    fn stored_group_colours_map_onto_clarity_hues() {
+        let t = Theme::starshell(false);
+        for name in crate::groups::COLORS {
+            assert!(t.named(name).is_some(), "{name}");
+        }
+        assert_eq!(t.named("red"), Some(LIGHT.clay));
+    }
+
+    #[test]
+    fn the_portal_scheme_reads_either_shape() {
+        use zbus::zvariant::Value;
+        assert_eq!(is_dark(&Value::U32(1)), Some(true));
+        assert_eq!(is_dark(&Value::U32(2)), Some(false));
+        assert_eq!(is_dark(&Value::U32(0)), Some(false));
+        assert_eq!(is_dark(&Value::Value(Box::new(Value::U32(1)))), Some(true));
     }
 }

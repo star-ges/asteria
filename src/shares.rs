@@ -131,12 +131,12 @@ pub fn delete_set(kind: Kind, name: &str) -> anyhow::Result<()> {
         }
         tries += 1;
         if tries == 100 {
-            bail!("shared folders are being changed (maybe by another Omacraft); try again in a moment");
+            bail!("shared folders are being changed (maybe by another Asteria); try again in a moment");
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     };
     if let Some(ids) = sets_in_use(kind).remove(name) {
-        bail!("“{name}” is still linked from {} (Omacraft finishes leaving it at the next launch)", ids.join(", "));
+        bail!("“{name}” is still linked from {} (Asteria finishes leaving it at the next launch)", ids.join(", "));
     }
     std::fs::remove_dir_all(set_dir(kind, name)).with_context(|| format!("deleting {} {name}", kind.noun()))
 }
@@ -190,7 +190,7 @@ fn target(inst: &Instance, folder: &str) -> Option<PathBuf> {
 }
 
 /// The set a link from the game dir's `folder` names, if its target has exactly the
-/// shape Omacraft makes: `../../../shared/<sets|worlds>/<set>/<folder>`, or (made
+/// shape Asteria makes: `../../../shared/<sets|worlds>/<set>/<folder>`, or (made
 /// elsewhere) the absolute path to it. Nothing else, so no `..` or other folder.
 /// Only looks at the text; [`lands_in_set`] checks where it really leads.
 fn link_set(folder: &str, target: &Path) -> Option<String> {
@@ -249,7 +249,7 @@ pub fn apply(inst: &Instance) -> anyhow::Result<Vec<String>> {
                 link_to(&link, &w)?;
             }
             (None, Some(c)) if let Some(set) = link_set(folder, &c) => unshare(&link, &set, &mut notes).with_context(|| format!("unsharing {folder}"))?,
-            (Some(_), Some(_)) => notes.push(format!("{}: left {folder} alone, it's a link Omacraft didn't make", inst.name)),
+            (Some(_), Some(_)) => notes.push(format!("{}: left {folder} alone, it's a link Asteria didn't make", inst.name)),
             (Some(w), None) => {
                 let shared = game.join(&w);
                 std::fs::create_dir_all(&shared)?;
@@ -865,7 +865,7 @@ mod tests {
     fn moving_in_locks_out_other_processes_and_never_replaces() {
         let set = set_name();
         let a = instance("a", &set, &[("schematics/house.litematic", "a")]);
-        // Another Omacraft is moving files: joining waits for it.
+        // Another Asteria is moving files: joining waits for it.
         let holder = crate::fsutil::tests::FlockHolder::lock(&dir().join(".lock"));
         let a2 = a.clone();
         let join = std::thread::spawn(move || apply(&a2));

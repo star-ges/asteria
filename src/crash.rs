@@ -114,7 +114,7 @@ impl Analysis {
 
     /// Plain text for the clipboard (a bug report, a message to a friend).
     pub fn summary(&self) -> String {
-        let mut out = vec![format!("Omacraft crash analysis: {}", self.headline())];
+        let mut out = vec![format!("Asteria crash analysis: {}", self.headline())];
         if let Some(d) = &self.description {
             out.push(format!("Minecraft says: {d}"));
         }
@@ -1052,7 +1052,7 @@ Stacktrace:
 -- MOD examplemod --
 Details:
 \tCaught exception: java.lang.NullPointerException: Cannot invoke \"net.minecraft.world.item.Item.getDefaultInstance()\" because \"item\" is null
-\tMod File: /home/u/.local/share/omacraft/instances/x/minecraft/mods/examplemod-1.0.jar
+\tMod File: /home/u/.local/share/asteria/instances/x/minecraft/mods/examplemod-1.0.jar
 \tFailure message: Example Mod (examplemod) has failed to load correctly
 \t\tjava.lang.NullPointerException: Cannot invoke \"net.minecraft.world.item.Item.getDefaultInstance()\" because \"item\" is null
 \tMod Version: 1.0

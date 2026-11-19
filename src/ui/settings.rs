@@ -16,14 +16,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let mut changed = false;
 
             w::section(ui, &t, "appearance");
-            let theme = if !paths::omarchy_theme_dir().join("colors.toml").exists() {
-                format!("{} (built in, Omarchy not found)", t.name)
-            } else if t.name.is_empty() {
-                "omarchy".to_string()
-            } else {
-                t.name.clone()
-            };
-            w::kv(ui, &t, "theme", theme);
+            w::kv(ui, &t, "colours", if t.dark { "dark" } else { "light" });
             let font = app
                 .fonts
                 .regular
@@ -39,7 +32,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     ui.painter().rect(r, CornerRadius::ZERO, c, Stroke::new(1.0, t.fg_a(0.15)), StrokeKind::Inside);
                 }
             });
-            w::para(ui, RichText::new("Colors and font follow `omarchy theme set` / `omarchy font set` live.").color(t.muted));
+            w::para(ui, RichText::new("Light or dark follows your desktop's colour scheme.").color(t.muted));
 
             ui.add_space(10.0);
             w::section(ui, &t, "java");
@@ -75,7 +68,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             egui::Frame::new().inner_margin(egui::Margin { left: (t.body_size() * 9.0 + 8.0) as i8, ..Default::default() }).show(ui, |ui| {
                 w::para(
                     ui,
-                    RichText::new("Leave this empty if Microsoft sign-in already works. It's only for using your own Azure app instead of Omacraft's.")
+                    RichText::new("Leave this empty if Microsoft sign-in already works. It's only for using your own Azure app instead of Asteria's.")
                         .color(t.muted),
                 );
             });

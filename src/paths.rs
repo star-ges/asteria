@@ -3,7 +3,11 @@
 
 use std::path::PathBuf;
 
-pub const APP_ID: &str = "omacraft";
+pub const APP_ID: &str = "asteria";
+
+/// Asteria continues Omacraft: its data and config dirs are moved over on first start
+/// (see `migrate.rs`), and names it wrote into user data are still read.
+pub const LEGACY_APP_ID: &str = "omacraft";
 
 #[cfg(not(test))]
 pub fn data_dir() -> PathBuf {
@@ -18,7 +22,7 @@ pub fn config_dir() -> PathBuf {
 /// Tests never touch the real data: everything goes under a scratch root per test run.
 #[cfg(test)]
 pub fn test_root() -> PathBuf {
-    std::env::temp_dir().join(format!("omacraft-test-{}", std::process::id()))
+    std::env::temp_dir().join(format!("asteria-test-{}", std::process::id()))
 }
 
 #[cfg(test)]
@@ -61,11 +65,4 @@ pub fn accounts_file() -> PathBuf {
 
 pub fn config_file() -> PathBuf {
     config_dir().join("config.toml")
-}
-
-/// Where `omarchy theme set` atomically swaps in the active theme.
-pub fn omarchy_theme_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_default()
-        .join(".local/state/omarchy/current/theme")
 }

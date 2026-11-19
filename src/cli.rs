@@ -1,17 +1,14 @@
-//! Headless commands, handy for Hyprland binds and the Omarchy menu:
-//!   omacraft list
-//!   omacraft launch <instance>
-//!   omacraft create <name> <mc-version> [fabric|quilt|forge|neoforge]
-//!   omacraft mod add <instance> <modrinth-slug>
-//!   omacraft import <zip|mrpack|folder|url>
-//!   omacraft export <instance> <file.zip|file.mrpack>
-//!   omacraft reclaim
-//!   omacraft theme
+//! Headless commands, handy for compositor key binds and scripts:
+//!   asteria list
+//!   asteria launch <instance>
+//!   asteria create <name> <mc-version> [fabric|quilt|forge|neoforge]
+//!   asteria mod add <instance> <modrinth-slug>
+//!   asteria import <zip|mrpack|folder|url>
+//!   asteria export <instance> <file.zip|file.mrpack>
+//!   asteria reclaim
 
 use std::io::IsTerminal;
 use std::sync::{Arc, Mutex};
-
-use egui::Color32;
 
 use crate::auth::{self, Account, Accounts};
 use crate::config::Config;
@@ -20,9 +17,8 @@ use crate::instance::{self, Instance};
 use crate::launch::{self, GameLog};
 use crate::loaders::{self, Loader, LoaderKind};
 use crate::task::{Task, TaskStatus};
-use crate::theme::Theme;
 
-const USAGE: &str = "usage: omacraft [list | launch <instance> | create <name> <version> [fabric|quilt|forge|neoforge] | mod add <instance> <slug> | import <file|folder|url> | export <instance> <file.zip|file.mrpack> | reclaim | theme]";
+const USAGE: &str = "usage: asteria [list | launch <instance> | create <name> <version> [fabric|quilt|forge|neoforge] | mod add <instance> <slug> | import <file|folder|url> | export <instance> <file.zip|file.mrpack> | reclaim]";
 
 pub async fn run(args: Vec<String>) -> i32 {
     let r = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
@@ -34,10 +30,6 @@ pub async fn run(args: Vec<String>) -> i32 {
         ["import", source] => import(source).await,
         ["export", id, dest] => export(id, dest).await,
         ["reclaim"] => reclaim().await,
-        ["theme"] => {
-            println!("{:#?}", Theme::load());
-            Ok(())
-        }
         ["-h" | "--help" | "help"] => {
             println!("{USAGE}");
             Ok(())
@@ -76,13 +68,24 @@ fn list() -> anyhow::Result<()> {
         return Ok(());
     }
     if instances.is_empty() {
-        println!("no instances yet; create one with `omacraft create` or in the app");
+        println!("no instances yet; create one with `asteria create` or in the app");
         return Ok(());
     }
 
-    let t = Theme::load();
+    // The terminal's own palette (ANSI colours), so the list matches whatever theme it has.
     let color = std::env::var_os("NO_COLOR").is_none();
-    let paint = |c: Color32, s: &str| if color { format!("\x1b[38;2;{};{};{}m{s}\x1b[0m", c.r(), c.g(), c.b()) } else { s.to_string() };
+    let paint = |code: &str, s: &str| if color && !code.is_empty() { format!("\x1b[{code}m{s}\x1b[0m") } else { s.to_string() };
+    let ansi = |name: &str| match name {
+        "red" => "31",
+        "green" => "32",
+        "yellow" => "33",
+        "blue" => "34",
+        "magenta" => "35",
+        "cyan" => "36",
+        "orange" => "91",
+        _ => "",
+    };
+    let muted = "90";
     let bold = |s: String| if color { format!("\x1b[1m{s}\x1b[0m") } else { s };
     let pad = |s: &str, w: usize| format!("{s}{}", " ".repeat(w.saturating_sub(s.chars().count())));
     let name_of = |i: &Instance| {
@@ -97,16 +100,16 @@ fn list() -> anyhow::Result<()> {
             if n > 0 {
                 println!();
             }
-            let tint = groups.color(g).and_then(|c| t.named(c)).unwrap_or(t.accent);
-            println!("{} {}", bold(paint(tint, g)), paint(t.muted, &members.len().to_string()));
+            let tint = groups.color(g).map(ansi).unwrap_or("");
+            println!("{} {}", bold(paint(tint, g)), paint(muted, &members.len().to_string()));
         }
         for i in members {
             println!(
                 "  {}  {}  {}  {}",
-                paint(t.fg, &pad(&name_of(i), nw)),
-                paint(t.fg, &pad(&i.mc_version, vw)),
-                paint(t.fg, &pad(&i.loader.display(), lw)),
-                paint(t.muted, &crate::ui::widgets::ago(i.last_played)),
+                pad(&name_of(i), nw),
+                pad(&i.mc_version, vw),
+                pad(&i.loader.display(), lw),
+                paint(muted, &crate::ui::widgets::ago(i.last_played)),
             );
         }
     }

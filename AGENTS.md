@@ -1,21 +1,23 @@
-# Omacraft
+# Asteria
 
-A Minecraft launcher in Rust (egui/eframe 0.36), modeled on Prism Launcher and drawn in
-Omarchy's design language. It themes itself live from the active Omarchy theme. The README
+A Minecraft launcher in Rust (egui/eframe 0.36), modeled on Prism Launcher and drawn in the
+**StarShell design language** (the `starshell-design` skill: read it before any UI work). It continues
+**Omacraft** (github.com/star-ges/omacraft, kept as a historical project; never push to it). The README
 covers features and file layout for users; this file is for working on the code.
 
-The name is **Omacraft**, with a capital O only, like Omacalc. Use lowercase `omacraft` for the
-binary, app-id and paths. Never write "OmaCraft".
+The redesign is under way, phase by phase: `docs/asteria/ASTERIA_REDESIGN_PLAN.md` is the approved plan
+(read it at the start of a session). The name is **Asteria**; lowercase `asteria` for the binary,
+app-id and paths.
 
 ## Build, run, test
 
 ```sh
 cargo build --release
-install -Dm755 target/release/omacraft ~/.local/bin/omacraft    # check `pgrep omacraft` first
+install -Dm755 target/release/asteria ~/.local/bin/asteria    # check `pgrep asteria` first
 cargo test                                                      # unit tests
-OMACRAFT_FIXTURE=<copy of a .minecraft> cargo test              # + NBT round-trips on real saves
+ASTERIA_FIXTURE=<copy of a .minecraft> cargo test              # + NBT round-trips on real saves
 cargo test -- --ignored                                         # + network tests (Modrinth)
-omacraft list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim | theme   # CLI, handy for checks
+asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim           # CLI, handy for checks
 ```
 
 - **Install scripts:** `install.sh` (builds from its own clone, else clones to a temp dir; also the `curl | bash`
@@ -38,8 +40,9 @@ omacraft list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim 
 | Module | What it does |
 |---|---|
 | `main.rs`, `cli.rs` | tokio runtime; the CLI if there are args, otherwise eframe (decorated: Hyprland draws no title bar, other desktops do) |
-| `paths.rs`, `config.rs` | `~/.local/share/omacraft`, `~/.config/omacraft/config.toml` (incl. `[keys]`, `collapsed_groups`, `msa_client_id`) |
-| `theme.rs` | Reads Omarchy `colors.toml` + `shell.toml`; fonts via fontconfig; live watcher; Tokyo Night fallback |
+| `paths.rs`, `config.rs` | `~/.local/share/asteria`, `~/.config/asteria/config.toml` (incl. `[keys]`, `collapsed_groups`, `msa_client_id`) |
+| `theme.rs` | StarShell's light and dark palettes plus the clarity hues; light/dark from the XDG portal's `color-scheme` (D-Bus, watched); fonts via fontconfig |
+| `migrate.rs` | First start: moves Asteria's data and config dirs to Asteria's and links the old names back |
 | `mojang.rs`, `loaders.rs`, `java.rs`, `launch.rs` | Version JSON + rules, loader profiles (Fabric/Quilt meta; Forge/NeoForge from Prism's meta: launchwrapper `+tweakers` for 1.6–1.12, ForgeWrapper + `mavenFiles` for 1.13+), Mojang Java runtimes, prepare + spawn (incl. QuickPlay) |
 | `auth.rs` | MSA device code → XBL → XSTS → Minecraft; offline accounts |
 | `skins.rs` | Profile skins/capes (upload, classic/slim, cape, reset; refresh + retry on 401), textures cached by hash in `cache/textures/`, Steve/Alex default by UUID. Skins always go up as multipart PNGs: the API's firewall 403s the JSON `{"url": …}` form, so classic/slim re-uploads the cached texture |
@@ -50,7 +53,7 @@ omacraft list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim 
 | `saves.rs` | `level.dat` and `servers.dat` via fastnbt `Value` (round-trips unknown fields) |
 | `keymap.rs` | Every action, default chords, scopes, parse/label, conflict detection |
 | `shares.rs` | Shared folders, by `Kind`: share sets (`shared/sets/<name>/{resourcepacks,shaderpacks,schematics}`, `share_set` in instance.toml) and world sets (`shared/worlds/<name>/saves`, `world_set`); `apply` turns an instance's folders into relative links or back into copies |
-| `world_sets.rs`, `backups.rs` | World sets' rules: one version + loader per set, `omacraft.toml` play records in each world, the pre-launch mod check; reflink snapshots of worlds (`backups/worlds/`) and of an instance's `mods` + `config` (`backups/instances/`), restore, rollback, pruning |
+| `world_sets.rs`, `backups.rs` | World sets' rules: one version + loader per set, `asteria.toml` play records in each world, the pre-launch mod check; reflink snapshots of worlds (`backups/worlds/`) and of an instance's `mods` + `config` (`backups/instances/`), restore, rollback, pruning |
 | `store.rs` | Content store: Modrinth installs and `.mrpack` files go through `cache/content/<sha1>` and are reflinked into instances; `reclaim` merges duplicates (`FIDEDUPERANGE`) and prunes the store |
 | `icons.rs`, `fsutil.rs`, `net.rs`, `task.rs` | Instance icons, reflink copy, HTTP + downloads, background `Task`/`Promise` |
 | `ui/mod.rs` | `App`, top/status bars, modals, key routing, launching, imports |
@@ -67,10 +70,12 @@ omacraft list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim 
 
 ## Patterns to follow
 
-- **Omarchy look:** square corners, monospace text, lowercase UI labels, no shadows.
+- **StarShell look** (the `starshell-design` skill is the authority; the plan maps it onto each screen):
+  type carries the design, structure is drawn with 1px hairlines, radius 0 everywhere, no shadows,
+  gradients or blur, one accent for hover/focus/active/selected only.
   - Colours come only from `Theme` tokens (`t.accent`, `t.fg_a(alpha)`, `t.named("blue")`…).
-  - Modals and toasts are bordered with `t.border_active`.
   - The single filled button on a screen is `w::primary_button`.
+  - Light and dark exist together with the same token names; never hard-code a colour.
 - **Text clips by default:** the global wrap mode is `Extend`.
   - Paragraphs that should wrap use `w::para`, which also avoids the justified spacing inside `ui.columns`.
   - Single lines that may be long use `Label::truncate()`.
@@ -92,8 +97,18 @@ omacraft list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim 
   - A symbols-only Nerd Font is bundled as a fallback (`assets/fonts`), so they render anywhere.
   - Avoid Unicode symbols that plain fonts lack: ⏎ ▶ ▸ ▾ were swapped out for this reason.
   - Write private-use glyphs as `\u{f44b}` escapes; they can get lost when pasted through tools.
-- **Theme fallback:** off Omarchy the theme falls back to Omarchy's stock Tokyo Night. The test
-  `fallback_is_omarchy_tokyo_night` keeps `Theme::default()` identical to it.
+- **Contrast:** every text colour and clarity hue is at least 4.5:1 on its own background
+  (`theme::tests::every_text_colour_is_at_least_4_5_to_1`). Check new colours on the real background.
+
+## Approved exceptions to the StarShell language
+
+Approved by the user on 2026-11-19. They are deliberate: don't "fix" them, and don't widen them.
+
+1. **Clarity hues.** A small terracotta palette (clay, sienna, ochre, olive, teal, slate, plum) for
+   readability only: groups, errors (clay), warnings (ochre), statuses (olive). Text colour and small
+   marks only, never fills, washes, borders or hover/focus/selection (those stay the accent).
+2. **JetBrains Mono** for raw text only: log lines, crash-report quotes, the config text mode.
+3. **A gradient on the desktop icon** (`packaging/asteria.svg`) only. Inside the app the mark is flat.
 
 ## Behaviour rules
 
@@ -103,7 +118,7 @@ test (and a rule here) with any fix that sets a new one.
 - **Folder imports:** `fsutil::copy_tree` copies *through* every symlink, inside the instance or not
   (shared `saves`/`mods` folders come across as independent copies). Broken links and links back up the tree
   are skipped and reported as import warnings.
-- **Tests:** under `cfg(test)`, `paths::data_dir`/`config_dir` live in `/tmp/omacraft-test-<pid>`, so no
+- **Tests:** under `cfg(test)`, `paths::data_dir`/`config_dir` live in `/tmp/asteria-test-<pid>`, so no
   test touches real data. Put test scratch under `paths::test_root()`.
 - **Pack imports:** Modrinth version URLs (`/modpack/<slug>/version/<id or number>`) install that
   version or fail; `.mrpack` files are checked before the instance exists (HTTPS downloads, a valid SHA-1 per file).
@@ -187,7 +202,7 @@ test (and a rule here) with any fix that sets a new one.
   member runs or duplicates a world (a leave would copy a world mid-write). Leaving a set to change version saves the
   new version only once the instance's saves no longer link into the set (`version::after_sharing`); a failed leave
   keeps it in the set on its old version, and a launch refuses while saves link into a world set the instance isn't in
-  (`shares::check_world_link`). When a game exits, each world it played gets an `omacraft.toml` of what the game
+  (`shares::check_world_link`). When a game exits, each world it played gets an `asteria.toml` of what the game
   started with (`world_sets::Loadout`, read just before Java is spawned: instance, version, loader, and every mod the enabled jars
   declare, from `world_sets::mod_inventory`: all of Forge's `[[mods]]` and `mcmod.info`'s entries, and nested jars
   (Fabric/Quilt `jars`, Forge jarjar, 4 deep, capped), unlike `content_meta`'s one-name-per-file display metadata).
@@ -331,23 +346,32 @@ test (and a rule here) with any fix that sets a new one.
   through `content_meta::zip_json`, as leniently as the loaders' Gson (raw control characters in strings, comments,
   a BOM): real mods ship raw line breaks in descriptions, and strict parsing dropped them from play records, names
   and the search's dependency links. Test: `world_sets::tests::metadata_the_loaders_accept_is_read`.
+- **Coming from Omacraft:** `migrate::run` moves `~/.local/share/omacraft` and `~/.config/omacraft` to
+  `asteria` by rename and leaves a relative link `omacraft → asteria`, before the CLI or the app touches any
+  file. Never while Omacraft runs or holds `shared/.lock`; the window then waits without starting the app,
+  so no `asteria` folder appears that would block the move. An existing `asteria` folder is never replaced.
+  Names Omacraft wrote are still read: `omacraft.toml` play records (the newer of the two wins; only
+  `asteria.toml` is written), `.omacraft-version` runtime markers, the `omacraft` icon key (`icons::canonical`),
+  `OMACRAFT_MSA_CLIENT_ID`. Tests: `migrate::tests`, `world_sets::tests::records_are_read_under_either_name`,
+  `export::tests::icons_map_to_prism_keys`.
 - **Saving:** write config/state files with `fsutil::write_atomic` (unique temp + rename; accounts at 0600).
 
 ## Testing the GUI safely
 
 - **Isolate data:** never test against real data. Set `XDG_DATA_HOME`/`XDG_CONFIG_HOME` to a scratch dir.
 - **Driving it:** add temporary hooks in `App::new` / `App::ui`, then remove them before committing.
-  - `OMACRAFT_DEBUG_VIEW=<instance-id>:<tab>` sets the starting view.
-  - `OMACRAFT_DEBUG_KEYS=l,j,shift+j,space` injects one key every few frames as `egui::Event::Key`.
+  - `ASTERIA_DEBUG_VIEW=<instance-id>:<tab>` sets the starting view.
+  - `ASTERIA_DEBUG_KEYS=l,j,shift+j,space` injects one key every few frames as `egui::Event::Key`.
   - Never inject input through the compositor (e.g. Hyprland's send-key dispatchers): it types into whatever window has focus.
 - **Never let a game window open on the desktop:** LWJGL uses Wayland, so unset
   `WAYLAND_DISPLAY` as well as `DISPLAY` when test-launching Minecraft.
 - **Plain-system simulation:** `HOME=<scratch>` plus a `FONTCONFIG_FILE` that only lists
-  `/usr/share/fonts/liberation` mimics a non-Omarchy distro.
+  `/usr/share/fonts/liberation` mimics a system without the StarShell fonts.
 
 ## Sign-in and licensing
 
-- **Microsoft sign-in:** the Azure client ID in `config::DEFAULT_CLIENT_ID` is Omacraft's own and
+- **Microsoft sign-in:** the Azure client ID in `config::DEFAULT_CLIENT_ID` was registered for Omacraft, is kept
+  for Asteria (same owner, nobody signed out), and is
   approved by Mojang. It stays in the source so source builds sign in out of the box; the README asks
   forks to register their own. Don't show it in the UI; the settings field says "use default". Never use
   Prism's ID.

@@ -940,7 +940,7 @@ fn steps_for(n: usize) -> usize {
 }
 
 fn worlds_note(ui: &mut Ui, t: &Theme) {
-    w::para(ui, RichText::new("Test from the title screen or a new world: a world opened with mods missing can lose what those mods added. Omacraft backs a world up first when that might happen.").color(t.yellow));
+    w::para(ui, RichText::new("Test from the title screen or a new world: a world opened with mods missing can lose what those mods added. Asteria backs a world up first when that might happen.").color(t.yellow));
 }
 
 fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
@@ -961,7 +961,7 @@ fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
 
     w::heading(ui, &t, "find the breaking mod");
     ui.add_space(6.0);
-    w::para(ui, "Omacraft turns about half the mods off at a time. You play, then say whether the problem occurred, and the suspects halve each time.");
+    w::para(ui, "Asteria turns about half the mods off at a time. You play, then say whether the problem occurred, and the suspects halve each time.");
     ui.add_space(4.0);
     let about = if testing == 0 { "Mark at least one mod to test.".to_string() } else { format!("{testing} mods to test: about {} games. Your mods go back exactly as they are now when the search ends.", steps_for(testing)) };
     w::para(ui, RichText::new(about).color(t.muted));

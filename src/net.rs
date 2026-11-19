@@ -7,7 +7,7 @@ use sha1::{Digest, Sha1};
 
 use crate::task::Task;
 
-pub const USER_AGENT: &str = concat!("omacraft/", env!("CARGO_PKG_VERSION"), " (minecraft launcher)");
+pub const USER_AGENT: &str = concat!("asteria/", env!("CARGO_PKG_VERSION"), " (minecraft launcher)");
 
 pub fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();

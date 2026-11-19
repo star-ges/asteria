@@ -244,6 +244,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "asteria"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "chrono",
+ "dirs",
+ "eframe",
+ "egui",
+ "egui_extras",
+ "fastnbt",
+ "flate2",
+ "futures",
+ "hex",
+ "image",
+ "libc",
+ "md-5",
+ "percent-encoding",
+ "reflink-copy",
+ "reqwest",
+ "rfd",
+ "serde",
+ "serde_json",
+ "sha1",
+ "smithay-clipboard",
+ "tokio",
+ "toml",
+ "toml_edit",
+ "uuid",
+ "zbus",
+ "zip",
+]
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2803,39 +2837,6 @@ dependencies = [
  "objc2 0.5.3",
  "objc2-core-location",
  "objc2-foundation 0.2.2",
-]
-
-[[package]]
-name = "omacraft"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "chrono",
- "dirs",
- "eframe",
- "egui",
- "egui_extras",
- "fastnbt",
- "flate2",
- "futures",
- "hex",
- "image",
- "libc",
- "md-5",
- "percent-encoding",
- "reflink-copy",
- "reqwest",
- "rfd",
- "serde",
- "serde_json",
- "sha1",
- "smithay-clipboard",
- "tokio",
- "toml",
- "toml_edit",
- "uuid",
- "zip",
 ]
 
 [[package]]

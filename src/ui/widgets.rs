@@ -1,4 +1,4 @@
-//! Small widget kit in the Omarchy idiom: square edges, mono text, menu rows
+//! Small widget kit: square edges, menu rows
 //! drawn with the shell's [menu] selected-* tokens, accent only where it means
 //! "this is the thing".
 
@@ -61,7 +61,7 @@ fn paint_lead(ui: &Ui, t: &Theme, lead: Lead, x: f32, cy: f32, size: f32, select
     }
 }
 
-/// A full-width list row like Omarchy's launcher/menu entries.
+/// A full-width list row.
 pub fn menu_row(ui: &mut Ui, t: &Theme, selected: bool, icon: &str, left: &str, right: &str) -> Response {
     let lead = if icon.is_empty() { Lead::None } else { Lead::Glyph(icon) };
     lead_row(ui, t, selected, lead, left, right, None)

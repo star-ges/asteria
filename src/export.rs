@@ -291,7 +291,7 @@ fn prism_icon(icon: &str) -> (String, Option<(String, Vec<u8>)>) {
             Err(_) => ("default".into(), None),
         };
     }
-    if icon == icons::DEFAULT || !icons::is_builtin(icon) {
+    if icons::canonical(icon) == icons::DEFAULT || !icons::is_builtin(icon) {
         let bytes = icons::BUILTIN.iter().find(|(n, _)| *n == icons::DEFAULT).map(|(_, b)| b.to_vec()).unwrap_or_default();
         return (icons::DEFAULT.into(), Some((format!("{}.svg", icons::DEFAULT), bytes)));
     }
@@ -443,13 +443,15 @@ mod tests {
     fn icons_map_to_prism_keys() {
         assert_eq!(prism_icon("creeper"), ("creeper".into(), None));
         let (key, file) = prism_icon(icons::DEFAULT);
-        assert_eq!(key, "omacraft");
-        assert_eq!(file.unwrap().0, "omacraft.svg");
+        assert_eq!(key, "asteria");
+        assert_eq!(file.unwrap().0, "asteria.svg");
+        // Omacraft's logo key exports as Asteria's default.
+        assert_eq!(prism_icon(icons::LEGACY_DEFAULT).0, "asteria");
     }
 
     #[test]
     fn mrpack_lists_hosted_and_bundles_the_rest() {
-        let dir = std::env::temp_dir().join(format!("omacraft-export-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("asteria-export-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("mods")).unwrap();
         std::fs::write(dir.join("mods/a.jar"), b"a").unwrap();
         std::fs::write(dir.join("mods/b.jar"), b"b").unwrap();

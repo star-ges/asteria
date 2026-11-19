@@ -1,4 +1,4 @@
-//! Instance icons: Prism's built-in set plus the Omacraft logo, and images
+//! Instance icons: Prism's built-in set plus the Asteria logo, and images
 //! the user adds (kept in the data dir, referenced as `custom:<file>`).
 
 use std::path::{Path, PathBuf};
@@ -9,7 +9,16 @@ use egui::load::Bytes;
 
 use crate::paths;
 
-pub const DEFAULT: &str = "omacraft";
+pub const DEFAULT: &str = "asteria";
+
+/// Omacraft's logo key, still in instances (and Prism exports) made before Asteria:
+/// it means the default icon.
+pub const LEGACY_DEFAULT: &str = "omacraft";
+
+/// `key`, with Omacraft's logo key read as Asteria's.
+pub fn canonical(key: &str) -> &str {
+    if key == LEGACY_DEFAULT { DEFAULT } else { key }
+}
 
 macro_rules! builtin {
     ($($name:literal),* $(,)?) => {
@@ -19,7 +28,7 @@ macro_rules! builtin {
 
 /// Ordered for the picker: logo, blocks, items, mobs, platforms.
 pub const BUILTIN: &[(&str, &[u8])] = builtin!(
-    "omacraft", "grass", "dirt", "stone", "planks", "brick", "iron", "gold", "diamond", "tnt", "netherstar", "enderpearl",
+    "asteria", "grass", "dirt", "stone", "planks", "brick", "iron", "gold", "diamond", "tnt", "netherstar", "enderpearl",
     "meat", "flame", "gear", "magitech", "creeper", "squarecreeper", "skeleton", "enderman", "chicken", "bee", "fox",
     "steve", "herobrine", "fabricmc", "quiltmc", "neoforged", "modrinth",
 );
@@ -29,6 +38,7 @@ pub fn dir() -> PathBuf {
 }
 
 pub fn is_builtin(key: &str) -> bool {
+    let key = canonical(key);
     BUILTIN.iter().any(|(n, _)| *n == key)
 }
 
@@ -39,6 +49,7 @@ pub fn source(key: &str) -> ImageSource<'static> {
             return ImageSource::Uri(format!("file://{}", p.display()).into());
         }
     }
+    let key = canonical(key);
     let (name, bytes) = BUILTIN.iter().find(|(n, _)| *n == key).unwrap_or(&BUILTIN[0]);
     ImageSource::Bytes { uri: format!("bytes://icon/{name}.svg").into(), bytes: Bytes::Static(bytes) }
 }

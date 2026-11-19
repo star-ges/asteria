@@ -1666,7 +1666,7 @@ fn value_part(ui: &mut Ui, t: &Theme, f: &Field, r: &Row, kb: Option<Nav>, focus
     let wid = egui::Id::new(("config-field", id));
     let mut edit = None;
     match &f.value {
-        // A key binding: click (or enter), then press the key; right-click unbinds. Like Omacraft's own keys.
+        // A key binding: click (or enter), then press the key; right-click unbinds. Like Asteria's own keys.
         Value::Scalar(Scalar::Str(v)) if f.hint.binding => {
             let shown = crate::vanilla_options::binding_value(v).unwrap_or_else(|| v.clone());
             let text = if r.capturing { "press a key…".to_string() } else { shown };

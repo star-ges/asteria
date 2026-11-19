@@ -458,12 +458,12 @@ pub(crate) mod tests {
             use std::io::BufRead;
             let mut child = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", "fsutil::tests::hold_flock_helper", "--ignored", "--nocapture", "--test-threads=1"])
-                .env("OMACRAFT_TEST_FLOCK", path)
+                .env("ASTERIA_TEST_FLOCK", path)
                 .stdout(std::process::Stdio::piped())
                 .spawn()
                 .unwrap();
             let out = std::io::BufReader::new(child.stdout.take().unwrap());
-            assert!(out.lines().map_while(Result::ok).any(|l| l.ends_with("omacraft-test-flocked")), "helper couldn't lock");
+            assert!(out.lines().map_while(Result::ok).any(|l| l.ends_with("asteria-test-flocked")), "helper couldn't lock");
             FlockHolder(child)
         }
     }
@@ -479,9 +479,9 @@ pub(crate) mod tests {
     #[ignore = "helper, run by FlockHolder in a child process"]
     fn hold_flock_helper() {
         use std::io::Write;
-        let Some(path) = std::env::var_os("OMACRAFT_TEST_FLOCK") else { return };
+        let Some(path) = std::env::var_os("ASTERIA_TEST_FLOCK") else { return };
         let _l = lock(Path::new(&path)).unwrap();
-        println!("omacraft-test-flocked");
+        println!("asteria-test-flocked");
         std::io::stdout().flush().unwrap();
         std::thread::sleep(std::time::Duration::from_secs(60));
     }

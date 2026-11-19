@@ -1,4 +1,4 @@
-//! Files dropped on the app's windows (added by Omacraft).
+//! Files dropped on the app's windows (added by Asteria).
 //!
 //! winit has no drag and drop on Wayland, and compositors like Hyprland send drops only to a
 //! client's first data device, which is this crate's. So the clipboard's data device takes

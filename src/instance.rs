@@ -362,7 +362,7 @@ impl ModFile {
 }
 
 fn default_icon() -> String {
-    "omacraft".into()
+    crate::icons::DEFAULT.into()
 }
 
 /// Game settings files: Minecraft's own and OptiFine's.

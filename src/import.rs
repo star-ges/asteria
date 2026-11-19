@@ -189,7 +189,7 @@ impl PrismInstance {
         self.cfg.get(k).is_some_and(|v| v == "true")
     }
 
-    /// Build the Omacraft instance (without files).
+    /// Build the Asteria instance (without files).
     fn to_instance(&self) -> anyhow::Result<Instance> {
         let mc = self.mc_version.clone().context("instance has no Minecraft version")?;
         let mut inst = Instance::new(&self.name, &mc, self.loader()?);
@@ -229,7 +229,7 @@ impl PrismInstance {
 fn import_icon(key: &str, search: &[PathBuf]) -> String {
     let base = key.trim_end_matches("_legacy");
     if icons::is_builtin(base) {
-        return base.to_string();
+        return icons::canonical(base).to_string();
     }
     for dir in search {
         for ext in ["png", "svg", "jpg", "jpeg"] {

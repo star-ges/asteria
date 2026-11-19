@@ -1,4 +1,4 @@
-//! Content store: every mod, resource pack and shader pack Omacraft downloads is
+//! Content store: every mod, resource pack and shader pack Asteria downloads is
 //! kept once under `cache/content/<sha1>`, and each instance gets a reflinked copy.
 //! Instances hold real, independent files (export, import and `cp -r` keep working,
 //! and editing one copy never reaches another), while btrfs/xfs store the bytes once.

@@ -22,7 +22,7 @@ pub struct World {
     pub hardcore: bool,
     pub version: Option<String>,
     pub icon: Option<PathBuf>,
-    /// (instance id, name) it was last played in, from Omacraft's record, if read.
+    /// (instance id, name) it was last played in, from Asteria's record, if read.
     pub played_in: Option<(String, String)>,
 }
 
@@ -304,10 +304,10 @@ mod tests {
     }
 
     /// The synthetic fixture, plus a copy of real game data when
-    /// OMACRAFT_FIXTURE points at a `.minecraft`-like folder.
+    /// ASTERIA_FIXTURE points at a `.minecraft`-like folder.
     fn fixtures() -> Vec<PathBuf> {
         let mut out = vec![synthetic()];
-        if let Ok(src) = std::env::var("OMACRAFT_FIXTURE") {
+        if let Ok(src) = std::env::var("ASTERIA_FIXTURE") {
             let dst = crate::paths::test_root().join(format!("fixture-{}", uuid::Uuid::new_v4()));
             fsutil::copy_tree(Path::new(&src), &dst, &|_| {}).unwrap();
             out.push(dst);

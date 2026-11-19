@@ -8,7 +8,7 @@ use crate::instance::Instance;
 use crate::paths;
 
 /// Palette names a group can be tinted with. Stored by name so the colour
-/// follows the Omarchy theme.
+/// follows light and dark.
 pub const COLORS: [&str; 7] = ["red", "orange", "yellow", "green", "cyan", "blue", "magenta"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -121,7 +121,7 @@ pub fn show(app: &mut App, s: &mut ExportDialog, ui: &mut Ui) -> Option<Result<R
                 ui.add_space(6.0);
                 w::para(
                     ui,
-                    RichText::new("Mods and packs that Modrinth hosts are listed as downloads; everything else is bundled in the pack. Opens in Omacraft, Prism and the Modrinth App.")
+                    RichText::new("Mods and packs that Modrinth hosts are listed as downloads; everything else is bundled in the pack. Opens in Asteria, Prism and the Modrinth App.")
                         .color(t.muted),
                 );
             }
@@ -129,7 +129,7 @@ pub fn show(app: &mut App, s: &mut ExportDialog, ui: &mut Ui) -> Option<Result<R
                 ui.add_space(6.0);
                 w::para(
                     ui,
-                    RichText::new("A full copy of the chosen files, with the instance's settings and icon. Opens in Omacraft, Prism, PolyMC and MultiMC, and works offline.")
+                    RichText::new("A full copy of the chosen files, with the instance's settings and icon. Opens in Asteria, Prism, PolyMC and MultiMC, and works offline.")
                         .color(t.muted),
                 );
             }

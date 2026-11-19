@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Asteria
+GenericName=Minecraft Launcher
+Comment=Minecraft launcher
+Exec=asteria
+Icon=asteria
+Terminal=false
+Categories=Game;
+Keywords=minecraft;mods;modrinth;
+StartupWMClass=asteria
