@@ -55,7 +55,8 @@ impl<'a> BarCell<'a> {
 
     fn text(&self) -> String {
         match self.number {
-            Some(n) => format!("{}  {}", text::number(n), self.label),
+            // `01 / INSTANCES`, as every numbered label in the kit (and StarShell's own bar).
+            Some(n) => format!("{} / {}", text::number(n), self.label),
             None => self.label.to_string(),
         }
     }

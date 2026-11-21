@@ -118,6 +118,10 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
   - Write private-use glyphs as `\u{f44b}` escapes; they can get lost when pasted through tools.
 - **Contrast:** every text colour and clarity hue is at least 4.5:1 on its own background
   (`design::tokens::tests::every_text_colour_is_at_least_4_5_to_1`). Check new colours on the real background.
+  The one exception is placeholder text in an empty field (`text_hint`, about 3.3:1, decided 2026-11-21: a hint at
+  the muted colour read as content or a title), kept at 3:1 or more and below `text_muted`
+  (`design::tokens::tests::hints_are_fainter_than_text_but_legible`).
+- **Numbered labels** are always `01 / LABEL`: section labels, pane heads, settings groups and bar cells alike.
 
 ## Approved exceptions to the StarShell language
 

@@ -23,6 +23,9 @@ pub struct Palette {
     pub text_strong: Color32,
     /// Secondary text, captions, inactive items, icons at rest.
     pub text_muted: Color32,
+    /// Placeholder text in an empty field: below the muted text, so a hint never reads as content
+    /// or a title (about 3.3:1: under the 4.5:1 for text, over the 3:1 floor for placeholders).
+    pub text_hint: Color32,
     /// Lines that frame sections.
     pub line_strong: Color32,
     /// Lines that divide rows inside a section.
@@ -53,6 +56,7 @@ pub const LIGHT: Palette = Palette {
     accent: hex(0xad5034),
     text_strong: hex(0x202020),
     text_muted: hex(0x4c4c4c),
+    text_hint: hex(0x8a857c),
     line_strong: hex(0x202020),
     // textMuted at 45% on the background, made opaque so lines that cross don't darken.
     line: hex(0xaea697),
@@ -77,6 +81,7 @@ pub const DARK: Palette = Palette {
     accent: hex(0xf2683a),
     text_strong: hex(0xe2d6bf),
     text_muted: hex(0xa99f8d),
+    text_hint: hex(0x716a5e),
     line_strong: hex(0x4e4941),
     line: hex(0x3a3630),
     clay: hex(0xee7266),
@@ -103,6 +108,7 @@ impl Palette {
             accent: m(a.accent, b.accent),
             text_strong: m(a.text_strong, b.text_strong),
             text_muted: m(a.text_muted, b.text_muted),
+            text_hint: m(a.text_hint, b.text_hint),
             line_strong: m(a.line_strong, b.line_strong),
             line: m(a.line, b.line),
             clay: m(a.clay, b.clay),
@@ -406,6 +412,16 @@ pub mod tests {
             for fill in [p.text_strong, p.accent, p.clay, p.clay.lerp_to_gamma(p.text_strong, 0.25)] {
                 assert!(contrast(p.text_on_fill(), fill) >= 4.5, "text on {fill:?} is {:.2}:1", contrast(p.text_on_fill(), fill));
             }
+        }
+    }
+
+    /// Placeholders sit below the muted text but stay legible: at least 3:1, and fainter than `text_muted`.
+    #[test]
+    fn hints_are_fainter_than_text_but_legible() {
+        for p in [&LIGHT, &DARK] {
+            let c = contrast(p.text_hint, p.background);
+            assert!(c >= 3.0, "hint {:?} is {c:.2}:1", p.text_hint);
+            assert!(c < contrast(p.text_muted, p.background));
         }
     }
 

@@ -6,6 +6,7 @@ use egui::{Color32, Margin, Response, RichText, Stroke, TextEdit, Ui, vec2};
 
 use super::{rule, text};
 use crate::design::fonts;
+use crate::design::glyphs;
 use crate::design::motion;
 use crate::design::tokens::{self as tk, Tokens};
 
@@ -70,7 +71,7 @@ impl<'a> Field<'a> {
             .new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center)))
             .scope(|ui| {
                 edit_style(ui, t);
-                let hint = RichText::new(self.hint).color(t.text_muted).font(fonts::text(tk::SIZE_BODY));
+                let hint = RichText::new(self.hint).color(t.text_hint).font(fonts::text(tk::SIZE_BODY));
                 ui.add(
                     TextEdit::singleline(self.value)
                         .frame(egui::Frame::NONE)
@@ -122,7 +123,7 @@ pub fn notes_sized(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, rows
                     // A custom frame carries the margin (TextEdit then ignores `margin` for drawing).
                     .frame(egui::Frame::NONE.inner_margin(Margin::same(tk::GAP as i8)))
                     .margin(Margin::same(tk::GAP as i8))
-                    .hint_text(RichText::new(hint).font(fonts::text(size)).color(t.text_muted))
+                    .hint_text(RichText::new(hint).font(fonts::text(size)).color(t.text_hint))
                     .desired_width(ui.available_width())
                     .desired_rows(rows)
                     .min_size(vec2(0.0, min_height))
@@ -136,10 +137,15 @@ pub fn notes_sized(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, rows
 }
 
 /// The large query line (Switzer ExtraBold at `size`, 44 for a list filter, 28 for a search
-/// pane), with a hairline under it that turns accent while focused.
+/// pane): a magnifying glass before it, so it reads as a field and not a title (muted, accent
+/// while focused), and a hairline under both that turns accent while focused.
 pub fn query(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, size: f32, focus: bool) -> Response {
+    let icon = (size * 0.64).round();
+    let lead = icon + tk::GAP;
     let resp = ui
-        .scope(|ui| {
+        .horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.add_space(lead);
             edit_style(ui, t);
             let font = fonts::heading(size);
             ui.add(
@@ -148,7 +154,7 @@ pub fn query(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, size: f32,
                     .margin(Margin::symmetric(0, tk::UNIT as i8))
                     .font(font.clone())
                     .text_color(t.text_strong)
-                    .hint_text(RichText::new(hint).font(font).color(t.text_muted))
+                    .hint_text(RichText::new(hint).font(font).color(t.text_hint))
                     .desired_width(ui.available_width()),
             )
         })
@@ -156,7 +162,11 @@ pub fn query(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, size: f32,
     if focus {
         resp.request_focus();
     }
-    let c = motion::color(ui.ctx(), resp.id.with("rule"), resp.has_focus(), t.line_strong, t.accent);
-    rule::hline(ui.painter(), resp.rect.x_range(), resp.rect.bottom(), c);
+    let on = resp.has_focus();
+    let icon_c = motion::color(ui.ctx(), resp.id.with("icon"), on || resp.hovered(), t.text_muted, t.accent);
+    let left = resp.rect.left() - lead;
+    text::paint_glyph(ui.painter(), egui::pos2(left + icon / 2.0, resp.rect.center().y), glyphs::SEARCH, fonts::icons(icon), icon_c);
+    let c = motion::color(ui.ctx(), resp.id.with("rule"), on, t.line_strong, t.accent);
+    rule::hline(ui.painter(), left..=resp.rect.right(), resp.rect.bottom(), c);
     resp
 }

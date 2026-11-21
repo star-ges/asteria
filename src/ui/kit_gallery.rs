@@ -137,7 +137,7 @@ impl Gallery {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let mut list = HoverList::begin(ui, Variant::Quiet);
                 for (i, s) in SECTIONS.iter().enumerate() {
-                    let label = format!("{}  {s}", kit::text::number(i + 1));
+                    let label = format!("{} / {s}", kit::text::number(i + 1));
                     if list.row(ui, &sys, HoverRow::new(("kit-section", i), &label).selected(self.section == i)).clicked() {
                         self.section = i;
                     }
