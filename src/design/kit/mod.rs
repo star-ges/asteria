@@ -24,7 +24,7 @@ pub use field::{Field, query};
 pub use hover_list::{HoverList, HoverRow, Variant};
 pub use row::QuietRow;
 pub use rule::{SectionLabel, hline, rule, vline};
-pub use setting::{SettingGroup, SettingRow, choice_row, setting_group};
+pub use setting::{SettingGroup, SettingRow, choice_row, in_order, setting_group};
 pub use sheet::{NoticeKind, banner, Spec, bracketed, empty_state, loading, notice, sheet, spec_strip, strip};
 pub use slider::{Fill, Slider, meter};
 pub use switch::{checkbox, switch};

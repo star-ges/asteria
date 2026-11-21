@@ -394,7 +394,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, inst: &Instance, found: Option<(&[Entry],
                         }
                     }
                     None if sets.sets.is_empty() => {
-                        ui.add(egui::Label::new(egui::RichText::new("None yet. Save these mods as one to switch between arrangements.").font(crate::design::fonts::text(tk::SIZE_BODY)).color(t.text_muted)).truncate());
+                        ui.add(egui::Label::new(egui::RichText::new("None").font(crate::design::fonts::text(tk::SIZE_BODY)).color(t.text_muted)).truncate());
                     }
                     None => {
                         ui.add(egui::Label::new(egui::RichText::new(format!("None chosen · {} saved", sets.sets.len())).font(crate::design::fonts::text(tk::SIZE_BODY)).color(t.text_muted)).truncate());

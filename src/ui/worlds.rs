@@ -609,7 +609,7 @@ fn backup_pane(ui: &mut Ui, app: &mut App, w: &Pane, snaps: &[Snapshot], kb: Opt
     if snaps.is_empty() {
         padded(ui, |ui| {
             ui.add_space(tk::GUTTER);
-            kit::body_muted(ui, &t, "No backups yet. One is taken whenever a game it was played in exits, and you can back it up now.");
+            kit::body_muted(ui, &t, "No backups yet. Backups are taken automatically on game exit, or click 'Back Up Now'.");
         });
         return;
     }

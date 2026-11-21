@@ -167,6 +167,18 @@ mod tests {
         }
     }
 
+    /// Keys are drawn in the raw face with arrows for the arrow keys: the bundled JetBrains Mono has them.
+    #[test]
+    fn the_key_face_has_arrows() {
+        let ctx = egui::Context::default();
+        crate::design::test_frame(&ctx, 0.0, |_| {});
+        ctx.fonts_mut(|f| {
+            for c in ['↑', '↓', '←', '→'] {
+                assert!(f.has_glyph(&raw(12.0), c), "{c} missing from the key face");
+            }
+        });
+    }
+
     /// Every icon in the glyph table is in the bundled Phosphor, in both weights.
     #[test]
     fn every_glyph_is_in_phosphor() {

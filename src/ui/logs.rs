@@ -68,7 +68,7 @@ pub fn render_lines(ui: &mut Ui, t: &Tokens, lines: &[&LogLine], stick_to_bottom
             let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), egui::Sense::hover());
             let p = ui.painter_at(rect);
             if mark.line == Some(range.start + i) {
-                p.rect_filled(rect, 0.0, t.wash(0.08));
+                p.rect_filled(rect, 0.0, t.wash(tk::ROW_WASH));
                 p.rect_filled(Rect::from_min_size(rect.min, vec2(tk::MARKER, rect.height())), 0.0, t.accent);
             }
             let (cap, cap_c, text_c) = level_style(t, line.level);

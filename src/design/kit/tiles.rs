@@ -55,14 +55,15 @@ impl Tiles {
             if !ui.is_rect_visible(cell) {
                 continue;
             }
-            let resp = ui.interact(cell, ui.id().with(("tile", i)), Sense::click());
+            // Tiles move with their own keys (`Nav`), so they stay out of Tab's order.
+            let resp = ui.interact(cell, ui.id().with(("tile", i)), Sense::CLICK);
             let pic = Rect::from_min_size(cell.min, vec2(cell_w, pic_h)).shrink(tk::LINE);
             let caption = paint(ui, i, pic);
             let hot = resp.hovered() || self.hot == Some(i);
             let p = ui.painter();
             let cap_rect = Rect::from_min_max(egui::pos2(cell.left(), cell.top() + pic_h), cell.max);
             if self.selected == Some(i) {
-                p.rect_filled(cap_rect, 0.0, t.wash(0.08));
+                p.rect_filled(cap_rect, 0.0, t.wash(tk::ROW_WASH));
             }
             let color = motion::color(ui.ctx(), resp.id, hot, t.text_muted, t.accent);
             let mut job = text::caption_job(&caption, color);

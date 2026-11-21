@@ -61,9 +61,9 @@ pub const LIGHT: Palette = Palette {
     // textMuted at 45% on the background, made opaque so lines that cross don't darken.
     line: hex(0xaea697),
     clay: hex(0xa33b30),
-    sienna: hex(0x94541f),
-    ochre: hex(0x8a6516),
-    olive: hex(0x566a2a),
+    sienna: hex(0x91531e),
+    ochre: hex(0x7e5c14),
+    olive: hex(0x55692a),
     teal: hex(0x2e6862),
     slate: hex(0x35596f),
     plum: hex(0x7d4a63),
@@ -86,12 +86,13 @@ pub const DARK: Palette = Palette {
     line: hex(0x3a3630),
     clay: hex(0xee7266),
     sienna: hex(0xd68a4c),
-    ochre: hex(0xaa843b),
-    olive: hex(0x7c9251),
-    teal: hex(0x5a948d),
-    slate: hex(0x698fa7),
-    plum: hex(0xb17a94),
-    // Dark uses the terminal's earth tones (the clarity hues are StarShell's terminal colours).
+    ochre: hex(0xb38b3e),
+    olive: hex(0x839a55),
+    teal: hex(0x5f9c94),
+    slate: hex(0x7296ac),
+    plum: hex(0xb6839b),
+    // Dark uses the terminal's earth tones (StarShell's terminal colours; the clarity hues above
+    // started as the same and were lifted a little to stay readable on a selected row).
     code_keyword: hex(0xb17a94),
     code_string: hex(0x7c9251),
     code_constant: hex(0xaa843b),
@@ -220,6 +221,8 @@ pub const CAPTION_TRACKING: f32 = 2.0;
 pub const SIZE_SEARCH: f32 = 44.0;
 /// Raw text (JetBrains Mono).
 pub const SIZE_MONO: f32 = 13.0;
+/// Keys in hints and key buttons: JetBrains Mono, a step under the raw text, to sit with captions.
+pub const SIZE_KEY: f32 = 12.0;
 /// Body paragraphs that are read at length (notes): line height as a factor of the size.
 pub const READING_LINE_HEIGHT: f32 = 1.5;
 /// Text read at length (notes).
@@ -421,6 +424,8 @@ pub const TABLE_HEADER_HEIGHT: f32 = 32.0;
 pub const TILE_CAPTION_HEIGHT: f32 = 44.0;
 
 /// A cell of the spec strip: caption over value.
+/// The heaviest wash a list row is selected with (`t.wash`); text on it is held to 4.5:1 too.
+pub const ROW_WASH: f32 = 0.08;
 pub const SPEC_CELL_HEIGHT: f32 = 64.0;
 
 #[cfg(test)]
@@ -451,6 +456,20 @@ pub mod tests {
             for fill in [p.text_strong, p.accent, p.clay, p.clay.lerp_to_gamma(p.text_strong, 0.25)] {
                 assert!(contrast(p.text_on_fill(), fill) >= 4.5, "text on {fill:?} is {:.2}:1", contrast(p.text_on_fill(), fill));
             }
+        }
+    }
+
+    /// Selected and keyboard rows sit on a wash of the text colour (at most `ROW_WASH`); small
+    /// text on them (captions, badges in a clarity hue) stays at 4.5:1. The accent there only
+    /// colours hot titles (18px bold and up: large text, 3:1).
+    #[test]
+    fn text_on_a_selected_row_is_at_least_4_5_to_1() {
+        for p in [&LIGHT, &DARK] {
+            let row = p.background.lerp_to_gamma(p.text_strong, ROW_WASH);
+            for c in [p.text_strong, p.text_muted, p.clay, p.sienna, p.ochre, p.olive, p.teal, p.slate, p.plum] {
+                assert!(contrast(c, row) >= 4.5, "{c:?} on a selected row {row:?} is {:.2}:1", contrast(c, row));
+            }
+            assert!(contrast(p.accent, row) >= 3.0, "the accent on a selected row is {:.2}:1", contrast(p.accent, row));
         }
     }
 

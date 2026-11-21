@@ -737,27 +737,36 @@ pub fn edit(app: &mut App, s: &mut EditState, ui: &mut Ui) -> EditOutcome {
         kit::setting_group(ui, &t, 3, "Game", "", |ui| {
             let caption = if s.custom_memory { format!("default {default_mem} MiB") } else { format!("default · {default_mem} MiB") };
             SettingRow::new("Memory").caption(&caption).show(ui, &t, |ui| {
-                if kit::switch(ui, &t, s.custom_memory, true, false, "own memory").clicked() {
-                    s.custom_memory = !s.custom_memory;
-                }
-                if s.custom_memory {
-                    let mut v = s.memory_mb as f64;
-                    let w = (control(ui) - tk::SWITCH_WIDTH - tk::GAP).max(tk::GUTTER * 4.0);
-                    kit::Slider::new(&mut v, 1024.0, 32768.0).step(512.0).value_text(format!("{} MiB", s.memory_mb)).mark(default_mem as f64).width(w).show(ui, &t);
-                    s.memory_mb = v as u32;
-                }
+                // The slider (when on) then its switch, in reading order.
+                let slider_w = (control(ui) - tk::SWITCH_WIDTH - tk::GAP).max(tk::GUTTER * 4.0);
+                let total = if s.custom_memory { slider_w + tk::GAP + tk::SWITCH_WIDTH } else { tk::SWITCH_WIDTH };
+                kit::in_order(ui, total, |ui| {
+                    if s.custom_memory {
+                        let mut v = s.memory_mb as f64;
+                        kit::Slider::new(&mut v, 1024.0, 32768.0).step(512.0).value_text(format!("{} MiB", s.memory_mb)).mark(default_mem as f64).width(slider_w).show(ui, &t);
+                        s.memory_mb = v as u32;
+                    }
+                    if kit::switch(ui, &t, s.custom_memory, true, false, "own memory").clicked() {
+                        s.custom_memory = !s.custom_memory;
+                    }
+                });
             });
             let caption = if s.custom_window { "width × height" } else { "game default" };
             SettingRow::new("Window").caption(caption).show(ui, &t, |ui| {
-                if kit::switch(ui, &t, s.custom_window, true, false, "own window size").clicked() {
-                    s.custom_window = !s.custom_window;
-                }
-                if s.custom_window {
-                    let w = ((control(ui) - tk::SWITCH_WIDTH - tk::GAP * 3.0 - tk::GAP) / 2.0).max(tk::GUTTER * 2.0);
-                    config::number(ui, &t, &mut s.window.1, 240..=4320, 1.0, false, w);
-                    kit::caption(ui, &t, "×");
-                    config::number(ui, &t, &mut s.window.0, 320..=7680, 1.0, false, w);
-                }
+                // Width × height, then the switch, in reading order.
+                let x_w = kit::text::caption_galley(ui, "×", t.text_muted).size().x;
+                let w = ((control(ui) - tk::SWITCH_WIDTH - x_w - tk::GAP * 3.0) / 2.0).max(tk::GUTTER * 2.0);
+                let total = if s.custom_window { w * 2.0 + x_w + tk::GAP * 3.0 + tk::SWITCH_WIDTH } else { tk::SWITCH_WIDTH };
+                kit::in_order(ui, total, |ui| {
+                    if s.custom_window {
+                        config::number(ui, &t, &mut s.window.0, 320..=7680, 1.0, false, w);
+                        ui.add(egui::Label::new(kit::text::caption_job("×", t.text_muted)).selectable(false));
+                        config::number(ui, &t, &mut s.window.1, 240..=4320, 1.0, false, w);
+                    }
+                    if kit::switch(ui, &t, s.custom_window, true, false, "own window size").clicked() {
+                        s.custom_window = !s.custom_window;
+                    }
+                });
             });
             SettingRow::new("JVM arguments").caption("added after Asteria's own").show(ui, &t, |ui| {
                 let w = control(ui);

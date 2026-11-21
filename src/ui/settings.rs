@@ -57,7 +57,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let keep = app.cfg.backups_keep;
             let shown = if keep == 0 { "off".to_string() } else { format!("{keep} per world") };
             SettingRow::new("Keep")
-                .description("A world is backed up whenever a game that played it exits, keeping this many (0 turns that off). Mods and config are backed up before every update, keeping as many. Backups taken by hand or before a world is played with older mods are never removed.")
+                .description("Backups are taken automatically on game exit, up to the amount set here. Mods and configs are backed up before every update, keeping the same amount. Backups taken by hand or before a world is played with older mods are never removed.")
                 .show(ui, &t, |ui| {
                     let mut v = keep as f64;
                     kit::Slider::new(&mut v, 0.0, 30.0).step(1.0).value_text(shown).mark(5.0).width(control(ui)).show(ui, &t);
@@ -236,23 +236,29 @@ fn keys(app: &mut App, ui: &mut Ui, t: &Tokens) {
             let capture = app.capture;
             let (out, picked) = row.show_row(ui, t, |ui| {
                 let mut picked = None;
-                // Right to left: add first, then the keys from the last.
+                // The keys, then +, in reading order.
                 let adding = capture == Some((info.action, None));
-                let add = Button::new(if adding { "press a key" } else { "" }).icon(glyphs::PLUS).hot(adding).show(ui, t);
-                if add.clicked() {
-                    picked = Some(KeyPick::Capture(None));
-                }
-                for (n, c) in chords.iter().enumerate().rev() {
+                let labels: Vec<(bool, String)> = chords.iter().enumerate().map(|(n, c)| {
                     let capturing = capture == Some((info.action, Some(n)));
-                    let label = if capturing { "press a key".to_string() } else { c.label() };
-                    let r = if capturing { Button::new(&label).hot(true) } else { Button::new(&label).key() }.show(ui, t);
-                    if r.clicked() {
-                        picked = Some(KeyPick::Capture(Some(n)));
+                    (capturing, if capturing { "press a key".to_string() } else { c.label() })
+                }).collect();
+                let buttons: Vec<Button> = labels.iter().map(|(capturing, l)| if *capturing { Button::new(l).hot(true) } else { Button::new(l).key() }).collect();
+                let add_button = Button::new(if adding { "press a key" } else { "" }).icon(glyphs::PLUS).hot(adding);
+                let total = buttons.iter().map(|b| b.width(ui, t)).sum::<f32>() + add_button.width(ui, t) + tk::GAP * buttons.len() as f32;
+                kit::in_order(ui, total, |ui| {
+                    for (n, b) in buttons.into_iter().enumerate() {
+                        let r = b.show(ui, t);
+                        if r.clicked() {
+                            picked = Some(KeyPick::Capture(Some(n)));
+                        }
+                        if r.secondary_clicked() {
+                            picked = Some(KeyPick::Remove(n));
+                        }
                     }
-                    if r.secondary_clicked() {
-                        picked = Some(KeyPick::Remove(n));
+                    if add_button.show(ui, t).clicked() {
+                        picked = Some(KeyPick::Capture(None));
                     }
-                }
+                });
                 picked
             });
             match picked {

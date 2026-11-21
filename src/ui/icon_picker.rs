@@ -94,7 +94,7 @@ pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
             choose = Some(k);
         }
         ui.add_space(tk::GUTTER);
-        kit::SectionLabel::new(2, "yours").aside(&custom.len().to_string()).show(ui, &t);
+        kit::SectionLabel::new(2, "user added").aside(&custom.len().to_string()).show(ui, &t);
         if custom.is_empty() {
             padded(ui, |ui| kit::loading(ui, &t, "add an image: png, jpg, svg or webp"));
         } else {

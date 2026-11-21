@@ -1126,7 +1126,7 @@ fn installed(
                 ContentKind::ResourcePacks => "No resource packs yet",
                 ContentKind::ShaderPacks => "No shader packs yet",
             };
-            padded(ui, |ui| kit::empty_state(ui, t, what, "Search Modrinth on the right, or drop files here.", None));
+            padded(ui, |ui| kit::empty_state(ui, t, what, "Search Modrinth, or drop files here.", None));
             return;
         }
         let mut list = kit::HoverList::begin(ui, kit::Variant::Compact).indent(tk::GUTTER + tk::HOVER_SHIFT_COMPACT);

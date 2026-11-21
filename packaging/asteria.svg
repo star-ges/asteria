@@ -1,14 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Asteria's application icon: the star in rust on StarShell's dark background,
-       lightening towards the top so it reads as shiny. The gradient is an approved
-       exception for this icon only; inside the app the mark is flat (assets/icons). -->
+  <!-- Asteria's application icon: the star in rust on StarShell's dark background, its light
+       gathered at the top tip and falling into a deeper rust, so it reads as shiny. The star
+       is the in-app mark's shape (inner ratio 0.22) spanning 84% of the square. The gradient
+       is an approved exception for this icon only; inside the app the mark is flat (assets/icons). -->
   <defs>
-    <linearGradient id="shine" x1="0" y1="20" x2="0" y2="108" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffc2a3"/>
-      <stop offset="0.45" stop-color="#f2683a"/>
-      <stop offset="1" stop-color="#ad5034"/>
+    <linearGradient id="shine" x1="0" y1="10" x2="0" y2="118" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff0dd"/>
+      <stop offset="0.32" stop-color="#ffa77c"/>
+      <stop offset="0.52" stop-color="#f2683a"/>
+      <stop offset="1" stop-color="#8f3f27"/>
     </linearGradient>
   </defs>
   <rect width="128" height="128" fill="#1c1a17"/>
-  <path d="M64 20L70.85 57.15L108 64L70.85 70.85L64 108L57.15 70.85L20 64L57.15 57.15Z" fill="url(#shine)"/>
+  <path d="M64 10L72.40 55.60L118 64L72.40 72.40L64 118L55.60 72.40L10 64L55.60 55.60Z" fill="url(#shine)"/>
 </svg>

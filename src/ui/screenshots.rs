@@ -304,7 +304,7 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
     }
     if shots.is_empty() {
         let title = if all { "No screenshots in any instance" } else { "No screenshots yet" };
-        padded(ui, |ui| kit::empty_state(ui, &t, title, "Press F2 in game to take one.", None));
+        padded(ui, |ui| kit::empty_state(ui, &t, title, "", None));
         return;
     }
     let s = &mut app.shots;

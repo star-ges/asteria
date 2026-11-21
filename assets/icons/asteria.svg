@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Asteria's mark, flat (inside the app): a four-pointed star on the dark background. -->
+  <!-- Asteria's mark, flat (inside the app): a four-pointed star on the dark background,
+       the application icon's shape without its shine. -->
   <rect width="128" height="128" fill="#1c1a17"/>
-  <path d="M64 20L70.85 57.15L108 64L70.85 70.85L64 108L57.15 70.85L20 64L57.15 57.15Z" fill="#f2683a"/>
+  <path d="M64 10L72.40 55.60L118 64L72.40 72.40L64 118L55.60 72.40L10 64L55.60 55.60Z" fill="#f2683a"/>
 </svg>

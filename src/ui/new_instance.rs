@@ -200,17 +200,21 @@ pub fn show(app: &mut App, s: &mut NewInstance, ui: &mut Ui) -> Option<Outcome> 
 /// A text field with a menu of the existing choices beside it (groups, share sets); the
 /// menu's last entry, `none`, clears it. For a settings row's control (laid out right to left).
 pub fn group_field(ui: &mut Ui, t: &Tokens, id: egui::Id, value: &mut String, choices: &[String], none: &str, hint: &str, width: f32) -> egui::Response {
-    ui.spacing_mut().item_spacing.x = tk::GAP;
-    if !choices.is_empty() {
-        let mut options: Vec<&str> = choices.iter().map(String::as_str).collect();
-        options.push(none);
-        let at = choices.iter().position(|c| c == value.trim()).or((value.trim().is_empty()).then_some(choices.len()));
-        if let Some(i) = kit::menu(ui, t, id, at, "", &options, 0.0, false) {
-            *value = if i == choices.len() { String::new() } else { choices[i].clone() };
-        }
-    }
     let menu_w = if choices.is_empty() { 0.0 } else { tk::BUTTON_HEIGHT + tk::GAP };
-    kit::Field::new(value).hint(hint).width((width - menu_w).max(tk::GUTTER * 4.0)).show(ui, t)
+    let field_w = (width - menu_w).max(tk::GUTTER * 4.0);
+    // The field, then its menu: Tab's order is the reading order.
+    kit::in_order(ui, field_w + menu_w, |ui| {
+        let r = kit::Field::new(value).hint(hint).width(field_w).show(ui, t);
+        if !choices.is_empty() {
+            let mut options: Vec<&str> = choices.iter().map(String::as_str).collect();
+            options.push(none);
+            let at = choices.iter().position(|c| c == value.trim()).or((value.trim().is_empty()).then_some(choices.len()));
+            if let Some(i) = kit::menu(ui, t, id, at, "", &options, 0.0, false) {
+                *value = if i == choices.len() { String::new() } else { choices[i].clone() };
+            }
+        }
+        r
+    })
 }
 
 /// The instance's name, group and (when making one) where its game settings come from, under
@@ -286,7 +290,7 @@ fn create(app: &mut App, s: &mut NewInstance, ui: &mut Ui) -> Option<Outcome> {
     let sel = s.picker.selection();
     let ready = sel.is_some() && !s.name.trim().is_empty();
     let k = |a| app.keymap.label(a);
-    let hints = [("up/down".to_string(), "version"), ("alt+up/down".into(), "loader version"), ("alt+left/right".into(), "loader"), (k(Action::Activate), "create")];
+    let hints = [("↑/↓".to_string(), "version"), ("alt+↑/↓".into(), "loader version"), ("alt+←/→".into(), "loader"), (k(Action::Activate), "create")];
     let clicked = sheet_foot(ui, &t, &hints, &[Button::new("create").filled().enabled(ready), Button::new("cancel")]);
     if clicked == Some(1) {
         s.cancelled = true;
@@ -391,7 +395,7 @@ fn import_ui(app: &mut App, s: &mut NewInstance, ui: &mut Ui) -> Option<Outcome>
     let k = |a| app.keymap.label(a);
     let hints: Vec<(String, &str)> = match s.from {
         From::Files => vec![(k(Action::Activate), "import")],
-        From::Modrinth => vec![("up/down".into(), "pack"), ("alt+up/down".into(), "version"), (k(Action::Activate), "import")],
+        From::Modrinth => vec![("↑/↓".into(), "pack"), ("alt+↑/↓".into(), "version"), (k(Action::Activate), "import")],
     };
     let clicked = sheet_foot(ui, &t, &hints, &[Button::new("import").filled().enabled(ready), Button::new("cancel")]);
     if clicked == Some(1) {

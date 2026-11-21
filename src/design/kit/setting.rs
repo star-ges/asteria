@@ -123,6 +123,16 @@ impl<'a> SettingGroup<'a> {
     }
 }
 
+/// Several controls `width` wide in a row's right-to-left control column, laid out left to right
+/// inside, so Tab visits them in reading order (a field before its menu, width before height).
+pub fn in_order<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.allocate_ui_with_layout(vec2(width, ui.available_height()), Layout::left_to_right(Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = tk::GAP;
+        add(ui)
+    })
+    .inner
+}
+
 /// What a [`SettingRow`] reports besides its control's result.
 pub struct RowOut {
     /// The whole row, by hover (`hovered()`), and whether it was pressed anywhere (also on its control).
@@ -200,6 +210,7 @@ impl<'a> SettingRow<'a> {
     }
 
     /// `control` lays out the row's controls, right to left from the shared column's right edge.
+    /// Several controls that Tab should visit in reading order go in [`in_order`].
     pub fn show<R>(self, ui: &mut Ui, t: &Tokens, control: impl FnOnce(&mut Ui) -> R) -> R {
         self.show_row(ui, t, control).1
     }

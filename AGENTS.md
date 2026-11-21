@@ -83,7 +83,8 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
     take a `hot` flag for keyboard-current (same response as hover), never change a value just by being drawn, and
     register AccessKit info.
   - The single filled button on a screen is `kit::Button::filled()`.
-  - Button and caption labels render uppercase; a key keeps its case (`Button::key`, `text::key_job`): `e` and `E` are different keys.
+  - Button and caption labels render uppercase; a key keeps its case and is set in JetBrains Mono (`Button::key`,
+    `text::key_job`, `key_hint`): `e` and `E` are different keys.
   - Galleys painted in a state colour are laid out in `Color32::PLACEHOLDER`: a galley's own colour wins over the paint colour.
   - Light and dark exist together with the same token names; never hard-code a colour.
 - **Text clips by default:** the global wrap mode is `Extend`.
@@ -110,14 +111,21 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
     dismissed (click, or Esc before any other key); a long one has `MORE`, which opens it in a sheet.
   - New actions go in `keymap.rs` `actions!` (with a scope), plus `nav::hints`. The `?` hint always comes first.
   - Never hard-code a key.
+  - Tab walks form controls only (fields, buttons, switches, sliders, menus, choice rows), in reading order.
+    Lists move with their own keys, so hover rows, quiet rows, table rows, tiles and the sheet's cover aren't
+    focusable (`Sense::CLICK`, or `.difference(Sense::FOCUSABLE)`). A setting row's control column runs right to
+    left; several controls in one row go in `kit::in_order` so Tab visits them left to right (a field before its
+    menu, width before height). Anything focusable shows it like hover.
 - **Background work:** `Promise::spawn(&app.rt, ctx, fut)` and poll `take()` each frame.
   - Long jobs carry a `Task` so the status bar shows progress.
 - **Destructive actions:** go through `Modal::Confirm` with a `ConfirmAction`.
 - **Icons in UI text:** Phosphor by name (`design::glyphs`, bundled, `fonts::icons`).
-  - Avoid Unicode symbols that plain fonts lack: ⏎ ▶ ▸ ▾ were swapped out for this reason.
+  - Avoid Unicode symbols that plain fonts lack: ⏎ ▶ ▸ ▾ were swapped out for this reason. Arrows are fine in keys
+    only (JetBrains Mono, bundled, has them: `fonts::tests::the_key_face_has_arrows`).
   - Add new icons to `glyphs.rs` as `\u{…}` escapes; private-use glyphs get lost when pasted through tools.
 - **Contrast:** every text colour and clarity hue is at least 4.5:1 on its own background
-  (`design::tokens::tests::every_text_colour_is_at_least_4_5_to_1`). Check new colours on the real background.
+  (`design::tokens::tests::every_text_colour_is_at_least_4_5_to_1`), on a selected row's wash too (`ROW_WASH`,
+  `text_on_a_selected_row_is_at_least_4_5_to_1`; the accent there colours only large titles, 3:1). Check new colours on the real background.
   The one exception is placeholder text in an empty field (`text_hint`, about 3.3:1, decided 2026-11-21: a hint at
   the muted colour read as content or a title), kept at 3:1 or more and below `text_muted`
   (`design::tokens::tests::hints_are_fainter_than_text_but_legible`).
@@ -132,7 +140,9 @@ Approved by the user on 2026-11-19. They are deliberate: don't "fix" them, and d
    marks only, never fills, washes, borders or hover/focus/selection (those stay the accent). One fill
    is allowed: a destructive action's confirming button is filled with clay (`kit::Button::danger()`,
    approved 2026-11-19).
-2. **JetBrains Mono** for raw text only: log lines, crash-report quotes, the config text mode.
+2. **JetBrains Mono** for raw text only: log lines, crash-report quotes, the config text mode, and keys (hints,
+   the `?` sheet, key buttons; widened 2026-11-21: keys are typed, vim-style, and the mono face tells `l` from `I`
+   and has arrows, so arrow keys show as ↑ ↓ ← →).
 3. **A gradient on the desktop icon** (`packaging/asteria.svg`) only. Inside the app the mark is flat.
 
 ## Behaviour rules
@@ -394,9 +404,11 @@ test (and a rule here) with any fix that sets a new one.
   - `ASTERIA_DEBUG_VIEW=<instance-id>:<tab>` sets the starting view.
   - `ASTERIA_DEBUG_KEYS=l,j,shift+j,space` injects one key every few frames as `egui::Event::Key` (egui's key
     names: `]`, not `bracketright`).
-  - Pointer input (clicks, drags) must go in through `raw_input_hook`, not `ctx.input_mut` mid-frame (egui has
-    already worked out hover and drags by then), and `main.rs`'s `Root` wraps `App`, so forward the hook from
-    `Root` too.
+  - Pointer input (clicks, drags) and Tab must go in through `raw_input_hook`, not `ctx.input_mut` mid-frame (egui has
+    already worked out hover, drags and focus by then), and `main.rs`'s `Root` wraps `App`, so forward the hook from
+    `Root` too. Set `raw.focused = true` there: a window on a silent workspace never has focus, and egui shows no
+    focused widget without it. The app repaints only when something moves, so a key-injecting hook must
+    `request_repaint` until its keys are sent.
   - Never inject input through the compositor (e.g. Hyprland's send-key dispatchers): it types into whatever window has focus.
 - **Kit gallery:** `ASTERIA_DEBUG_VIEW=kit` (with `ASTERIA_KIT_SECTION=<n>`, `ASTERIA_KIT_PALETTE=light|dark|both`,
   `ASTERIA_KIT_KEY_ROW=<n>`). Look at it at full size: Asteria is full-width first.

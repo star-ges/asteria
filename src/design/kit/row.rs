@@ -66,7 +66,8 @@ impl<'a> QuietRow<'a> {
     /// Draws the row; `control` lays out its right end, right to left (it may add nothing).
     pub fn show<R>(self, ui: &mut Ui, t: &Tokens, control: impl FnOnce(&mut Ui) -> R) -> (Response, R) {
         let h = if self.tall { tk::BUTTON_HEIGHT + tk::GAP } else { tk::LIST_ROW_HEIGHT_QUIET };
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
+        // Checklists move with their own keys (`Nav`), so rows stay out of Tab's order.
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::CLICK);
         let right = rect.right() - tk::GUTTER;
         // The control first, so the text takes the room it leaves.
         let ctrl = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(egui::pos2(rect.left() + tk::GUTTER, rect.top()), egui::pos2(right, rect.bottom()))).layout(Layout::right_to_left(Align::Center)).id_salt(self.id));

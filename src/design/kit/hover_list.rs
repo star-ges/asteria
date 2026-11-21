@@ -257,7 +257,8 @@ impl HoverList {
     /// The row stays hot while the pointer is over them.
     pub fn row_trail(&mut self, ui: &mut Ui, t: &Tokens, row: HoverRow) -> Trail {
         let v = self.variant;
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), v.height()), row.sense);
+        // Lists move with their own keys (the pane's `Nav`), so rows stay out of Tab's order.
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), v.height()), row.sense.difference(Sense::FOCUSABLE));
         let has_trail = row.trail.0 + row.trail.1 > 0.0;
         // Over the row's own controls the row isn't the hovered widget, but it's still the one
         // being reached for.

@@ -259,7 +259,7 @@ pub fn help(app: &App, ui: &mut Ui) -> bool {
             None => sections.push((i.section, vec![(keys, i.what)])),
         }
     }
-    sections.push(("dialogs", vec![("tab".into(), "next field"), ("up / down".into(), "pick a version while typing a filter"), (app.keymap.label(Action::Activate), "confirm"), ("esc".into(), "close")]));
+    sections.push(("dialogs", vec![("tab".into(), "next field"), ("↑ / ↓".into(), "pick a version while typing a filter"), (app.keymap.label(Action::Activate), "confirm"), ("esc".into(), "close")]));
     let mut close = false;
     ui.horizontal(|ui| {
         kit::heading(ui, &t, "Keys");
@@ -287,7 +287,7 @@ pub fn help(app: &App, ui: &mut Ui) -> bool {
                     // On the section label's gutter.
                     let rect = rect.with_min_x(rect.left() + tk::GUTTER);
                     // Keys keep their own case (`e` and `E` differ), so not a caption.
-                    let kg = p.layout_no_wrap(k.clone(), crate::design::fonts::text(tk::SIZE_BODY), t.text_strong);
+                    let kg = p.layout_no_wrap(k.clone(), crate::design::fonts::raw(tk::SIZE_MONO), t.text_strong);
                     p.galley(egui::pos2(rect.left(), rect.center().y - kg.size().y / 2.0), kg, t.text_strong);
                     let mut job = egui::text::LayoutJob::simple_singleline(what.to_string(), crate::design::fonts::text(tk::SIZE_BODY), t.text_muted);
                     job.wrap.max_width = rect.width() - key_w;

@@ -138,10 +138,13 @@ pub fn notes_sized(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, rows
 
 /// The large query line (Switzer ExtraBold at `size`, 44 for a list filter, 28 for a search
 /// pane): a magnifying glass before it, so it reads as a field and not a title (muted, accent
-/// while focused), and a hairline under both that turns accent while focused.
+/// while focused), and a hairline under both that turns accent while focused. A hint that
+/// doesn't fit is left out (the glass says what it is) rather than cut short.
 pub fn query(ui: &mut Ui, t: &Tokens, value: &mut String, hint: &str, size: f32, focus: bool) -> Response {
     let icon = (size * 0.64).round();
     let lead = icon + tk::GAP;
+    let hint_w = ui.painter().layout_no_wrap(hint.to_string(), fonts::heading(size), t.text_hint).size().x;
+    let hint = if hint_w <= ui.available_width() - lead { hint } else { "" };
     let resp = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;

@@ -78,11 +78,11 @@ pub fn header(ui: &mut Ui, t: &Tokens, columns: &[Column]) -> Response {
 
 /// One row. A click selects it (the caller keeps the selection); there is no hover state.
 pub fn row(ui: &mut Ui, t: &Tokens, columns: &[Column], cells: &[Cell], selected: bool) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), tk::TABLE_ROW_HEIGHT), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), tk::TABLE_ROW_HEIGHT), Sense::CLICK);
     let ws = widths(columns, rect.width());
     let p = ui.painter();
     if selected {
-        p.rect_filled(rect, 0.0, t.wash(0.08));
+        p.rect_filled(rect, 0.0, t.wash(tk::ROW_WASH));
     }
     let mut x = rect.left() + tk::GUTTER;
     let cy = rect.center().y;

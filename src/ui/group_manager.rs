@@ -2,7 +2,7 @@
 //! belong to each. The groups as a compact hover list (each with its clarity hue's tick) beside
 //! the selected one: its settings, then its instances as a checklist.
 
-use egui::{Align, Layout, Sense, Ui, vec2};
+use egui::{Sense, Ui, vec2};
 
 use super::content::{padded, pane_head, sheet_foot, sheet_panes};
 use super::nav::Nav;
@@ -178,9 +178,13 @@ fn group_page(app: &mut App, s: &mut GroupManager, ui: &mut Ui, t: &Tokens, name
         SettingRow::new("Name").show(ui, t, |ui| {
             let new = s.rename.trim().to_string();
             let ok = !new.is_empty() && new != name;
-            let go = Button::new("rename").enabled(ok).show(ui, t).clicked();
-            let w = (ui.available_width().min(tk::SETTING_CONTROL_WIDTH) - tk::GAP).max(tk::GUTTER * 4.0);
-            let r = kit::Field::new(&mut s.rename).width(w).focus(std::mem::take(&mut s.focus_rename)).show(ui, t);
+            // The field, then rename, in reading order.
+            let button_w = Button::new("rename").width(ui, t);
+            let w = (ui.available_width().min(tk::SETTING_CONTROL_WIDTH + button_w) - button_w - tk::GAP).max(tk::GUTTER * 4.0);
+            let (r, go) = kit::in_order(ui, w + tk::GAP + button_w, |ui| {
+                let r = kit::Field::new(&mut s.rename).width(w).focus(std::mem::take(&mut s.focus_rename)).show(ui, t);
+                (r, Button::new("rename").enabled(ok).show(ui, t).clicked())
+            });
             let go = go || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
             if go {
                 if app.groups.get(&new).is_some() {
@@ -282,14 +286,15 @@ fn group_page(app: &mut App, s: &mut GroupManager, ui: &mut Ui, t: &Tokens, name
 }
 
 /// No colour, then the seven clarity hues, as small squares (a hue is a mark, never a fill
-/// behind text); the current one framed. Laid out right to left, in order. Returns a pick.
+/// behind text); the current one framed, in reading (and Tab) order. Returns a pick.
 fn swatches(ui: &mut Ui, t: &Tokens, current: Option<&str>) -> Option<Option<String>> {
     let side = tk::SWATCH_SIZE;
     let all: Vec<Option<&str>> = std::iter::once(None).chain(COLORS.iter().copied().map(Some)).collect();
     let mut pick = None;
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+    let total = all.len() as f32 * side + (all.len() - 1) as f32 * tk::UNIT / 2.0;
+    kit::in_order(ui, total, |ui| {
         ui.spacing_mut().item_spacing.x = tk::UNIT / 2.0;
-        for c in all.iter().rev() {
+        for c in all.iter() {
             let (rect, resp) = ui.allocate_exact_size(vec2(side, side), Sense::click());
             let on = *c == current;
             let hot = resp.hovered() || resp.has_focus();

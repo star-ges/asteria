@@ -38,7 +38,8 @@ pub fn entrance_with(ui: &Ui, id: egui::Id, motion: Motion) -> f32 {
 pub fn sheet<R>(ui: &mut Ui, t: &Tokens, rect: Rect, id: egui::Id, caption: &str, title: &str, body: impl FnOnce(&mut Ui) -> R) -> R {
     let rise = entrance(ui, id);
     // Block the pointer from the panes under it.
-    let _ = ui.interact(rect, id.with("cover"), Sense::click_and_drag());
+    // Not focusable: Tab's first stop is the sheet's first control.
+    let _ = ui.interact(rect, id.with("cover"), Sense::CLICK | Sense::DRAG);
     ui.painter().rect_filled(rect, 0.0, t.background);
     let inner = rect.shrink2(vec2(tk::GUTTER, 0.0)).translate(vec2(0.0, (1.0 - rise) * tk::PANEL_RISE));
     let out = ui.scope_builder(UiBuilder::new().max_rect(inner).id_salt(id), |ui| {
@@ -190,6 +191,7 @@ pub fn notice(ui: &mut Ui, t: &Tokens, rect: Rect, id: egui::Id, kind: NoticeKin
         let resp = ui.interact(r, id.with("dismiss"), Sense::click());
         let c = motion::color(ui.ctx(), resp.id, resp.hovered(), t.text_muted, t.accent);
         p.galley(egui::pos2(right - g.size().x, cy - g.size().y / 2.0), text::caption_galley(ui, "dismiss", c), c);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, "dismiss"));
         out.dismissed = resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked();
         right -= g.size().x + tk::GAP * 2.0;
     }
@@ -199,6 +201,7 @@ pub fn notice(ui: &mut Ui, t: &Tokens, rect: Rect, id: egui::Id, kind: NoticeKin
         let resp = ui.interact(r, id.with("more"), Sense::click());
         let c = motion::color(ui.ctx(), resp.id, resp.hovered(), t.text_strong, t.accent);
         p.galley(egui::pos2(right - g.size().x, cy - g.size().y / 2.0), text::caption_galley(ui, "more", c), c);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, "more"));
         out.more = resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked();
         right -= g.size().x + tk::GAP * 2.0;
     }
@@ -265,7 +268,7 @@ pub fn spec_strip(ui: &mut Ui, t: &Tokens, cells: &[Spec]) -> Option<usize> {
     for (i, c) in cells.iter().enumerate() {
         let r = Rect::from_min_size(rect.min + vec2(i as f32 * w, 0.0), vec2(if i + 1 == n { rect.width() - w * i as f32 } else { w }, rect.height()));
         let resp = ui.interact(r, ui.id().with(("spec", i)), if c.link { Sense::click() } else { Sense::hover() });
-        let hot = c.link && resp.hovered();
+        let hot = c.link && (resp.hovered() || resp.has_focus());
         let cap_c = motion::color(ui.ctx(), resp.id.with("cap"), hot, t.text_muted, t.accent);
         let val_c = motion::color(ui.ctx(), resp.id.with("val"), hot, c.hue.unwrap_or(t.text_strong), t.accent);
         // The first cell's text sits on the page's gutter, so it lines up with what's above.

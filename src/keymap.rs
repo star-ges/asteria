@@ -257,14 +257,14 @@ impl Chord {
         s
     }
 
-    /// For people: `J`, `ctrl+d`, `enter`, `down` (words, not arrows: Switzer has none).
+    /// For people: `J`, `ctrl+d`, `enter`, `↓` (keys are drawn in JetBrains Mono, which has arrows).
     pub fn label(&self) -> String {
         let key = match self.key {
             Key::Enter => "enter".to_string(),
-            Key::ArrowDown => "down".into(),
-            Key::ArrowUp => "up".into(),
-            Key::ArrowLeft => "left".into(),
-            Key::ArrowRight => "right".into(),
+            Key::ArrowDown => "↓".into(),
+            Key::ArrowUp => "↑".into(),
+            Key::ArrowLeft => "←".into(),
+            Key::ArrowRight => "→".into(),
             Key::Escape => "esc".into(),
             Key::PageDown => "pgdn".into(),
             Key::PageUp => "pgup".into(),

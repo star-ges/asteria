@@ -280,7 +280,7 @@ fn account_list(app: &mut App, ui: &mut Ui, t: &Tokens, kb: Option<Nav>, fill: b
         for a in &app.accounts.accounts {
             let is_active = active.as_deref() == Some(a.uuid());
             let on = current.as_deref() == Some(a.uuid());
-            let desc = if is_active { format!("{} · playing as this one", a.kind()) } else { a.kind().to_string() };
+            let desc = if is_active { format!("{} · active", a.kind()) } else { format!("{} · select and click 'make active' to switch to this account", a.kind()) };
             let mut row = HoverRow::new(("account", a.uuid()), a.name()).description(&desc).selected(on).hot(on && focused);
             if is_active {
                 row = row.badge("active", t.ok());

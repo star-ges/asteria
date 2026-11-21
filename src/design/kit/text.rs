@@ -18,11 +18,19 @@ pub fn caps(text: &str) -> String {
 
 /// A caption as a layout job: Switzer SemiBold 11, uppercase, tracked.
 pub fn caption_job(text: &str, color: Color32) -> LayoutJob {
-    key_job(&caps(text), color)
+    tracked_job(&caps(text), color)
 }
 
-/// A caption in its own case (a key: `e` and `E` are different keys), tracked.
+/// A key, in its own case (`e` and `E` are different keys) and in JetBrains Mono (an approved
+/// exception: keys are typed, vim-style, and the mono face tells `l` from `I` and has arrows).
 pub fn key_job(text: &str, color: Color32) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    job.append(text, 0.0, TextFormat { font_id: fonts::raw(tk::SIZE_KEY), color, ..Default::default() });
+    job
+}
+
+/// The caption face as a job, already in its case.
+fn tracked_job(text: &str, color: Color32) -> LayoutJob {
     let mut job = LayoutJob::default();
     job.append(text, 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), color, extra_letter_spacing: tk::CAPTION_TRACKING, ..Default::default() });
     job
@@ -167,7 +175,7 @@ pub fn icon_label(painter: &Painter, center: Pos2, glyph: &str, size: f32, color
 pub fn key_hint(ui: &mut Ui, t: &Tokens, key: &str, label_text: &str) -> Response {
     // The key keeps its own case: `e` and `E` are different keys.
     let mut job = LayoutJob::default();
-    job.append(key, 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), color: t.text_strong, extra_letter_spacing: tk::CAPTION_TRACKING, ..Default::default() });
+    job.append(key, 0.0, TextFormat { font_id: fonts::raw(tk::SIZE_KEY), color: t.text_strong, ..Default::default() });
     job.append("  ", 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), ..Default::default() });
     job.append(&caps(label_text), 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), color: t.text_muted, extra_letter_spacing: tk::CAPTION_TRACKING, ..Default::default() });
     label(ui, job)
