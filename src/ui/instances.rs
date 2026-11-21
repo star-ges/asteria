@@ -2,6 +2,7 @@ use egui::{Align, Layout, RichText, Sense, Ui, vec2};
 
 use super::{App, Confirm, ConfirmAction, Modal, ToastKind, config, content, logs, new_instance, screenshots, servers, version, worlds};
 use crate::design::kit::{self, Button, HoverList, HoverRow, SectionLabel, SettingRow, Spec, Variant};
+use crate::design::motion::Motion;
 use crate::design::{glyphs as g, tokens as tk};
 use super::nav::{Nav, Zone};
 use crate::icons;
@@ -438,7 +439,9 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
     // Panes with heads and hover lists run to the page's edges (their rules and rows reach the
     // lines); the overview sits on the gutter, unless the version picker's panes take it over.
     let side = if app.inst_tab == InstTab::Overview && !app.version.picker_open() { tk::GUTTER } else { 0.0 };
+    let fade = view_fade(ui, app.inst_tab);
     egui::Frame::new().inner_margin(egui::Margin { left: side as i8, right: side as i8, top: tk::GAP as i8, bottom: tk::GAP as i8 }).show(ui, |ui| {
+        ui.multiply_opacity(fade);
         // Files dropped now go into this tab's folder: its pane is what the drop hint frames.
         app.drop_rect = Some(ui.available_rect_before_wrap().expand2(vec2(side, tk::GAP)));
 
@@ -453,6 +456,19 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
             tab => content::show(app, ui, inst, tab.content_kind().unwrap()),
         }
     });
+}
+
+/// 0 → 1 as a newly opened view (a section or a sub-tab) fades in, so switching doesn't jolt.
+/// The first view shown, and a different instance on the same view, are there at once.
+fn view_fade(ui: &Ui, tab: InstTab) -> f32 {
+    let key = egui::Id::new("asteria-view");
+    let (last, n) = ui.ctx().data(|d| d.get_temp::<(InstTab, u64)>(key)).unwrap_or((tab, 0));
+    let n = if last == tab { n } else { n + 1 };
+    ui.ctx().data_mut(|d| d.insert_temp(key, (tab, n)));
+    if n == 0 {
+        return 1.0;
+    }
+    kit::sheet::entrance_with(ui, key.with(n), Motion::Fast)
 }
 
 /// The section tabs (hairline cells, the open one marked), then the open section's sub-tabs
