@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 
 use egui::{Align, Layout, Ui, vec2};
 
-use super::widgets as w;
 use crate::design::kit;
 use crate::design::tokens::{self as tk, Tokens};
 use super::nav::{Nav, Zone};
@@ -484,6 +483,51 @@ pub(super) fn panes(ui: &mut Ui, t: &Tokens, left_w: f32) -> (Ui, Ui) {
     (child(ui, left, "left-pane"), child(ui, right, "right-pane"))
 }
 
+/// A sheet's two panes, the left `left_share` of the width (at least `left_min`), down to
+/// `footer` above the sheet's foot; the cursor moves past them. Returns the panes.
+pub(super) fn sheet_panes(ui: &mut Ui, t: &Tokens, left_share: f32, left_min: f32, footer: f32) -> (Ui, Ui) {
+    let area = ui.available_rect_before_wrap();
+    let area = egui::Rect::from_min_size(area.min, vec2(area.width(), (area.height() - footer).max(tk::SETTING_ROW_HEIGHT * 4.0)));
+    ui.allocate_rect(area, egui::Sense::hover());
+    let mut body = ui.new_child(egui::UiBuilder::new().max_rect(area).id_salt("sheet-panes").layout(Layout::top_down(Align::Min)));
+    let left_w = (area.width() * left_share).max(left_min.min(area.width() / 2.0));
+    panes(&mut body, t, left_w)
+}
+
+/// A sheet's foot: a strong rule, then key hints on the left and the sheet's buttons on the
+/// right (the first filled, as given). Returns the button clicked.
+pub(super) fn sheet_foot(ui: &mut Ui, t: &Tokens, hints: &[(String, &str)], buttons: &[kit::Button]) -> Option<usize> {
+    kit::rule(ui, t, true);
+    ui.add_space(tk::GAP);
+    let mut clicked = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = tk::GUTTER;
+        let buttons_w: f32 = buttons.iter().map(|b| b.width(ui, t)).sum::<f32>() + tk::GAP * buttons.len().saturating_sub(1) as f32;
+        let row = ui.available_rect_before_wrap();
+        let right = egui::Rect::from_min_max(egui::pos2(row.right() - buttons_w, row.top()), egui::pos2(row.right(), row.top() + tk::BUTTON_HEIGHT));
+        let mut c = ui.new_child(egui::UiBuilder::new().max_rect(right).layout(Layout::left_to_right(Align::Center)));
+        c.spacing_mut().item_spacing.x = tk::GAP;
+        for (i, b) in buttons.iter().enumerate() {
+            if b.clone().show(&mut c, t).clicked() {
+                clicked = Some(i);
+            }
+        }
+        // Hints only where they fit beside the buttons.
+        ui.set_max_width((ui.available_width() - buttons_w - tk::GUTTER).max(0.0));
+        ui.set_min_height(tk::BUTTON_HEIGHT);
+        let mut used = 0.0;
+        for (key, label) in hints {
+            let w = kit::text::caption_galley(ui, &format!("{key} {label}"), t.text_muted).size().x + tk::GUTTER;
+            used += w;
+            if used > ui.max_rect().width() {
+                break;
+            }
+            kit::key_hint(ui, t, key, label);
+        }
+    });
+    clicked
+}
+
 pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance, kind: ContentKind) {
     let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
@@ -789,7 +833,7 @@ fn snapshot_table(ui: &mut Ui, t: &Tokens, id: &str, list: &[crate::backups::Sna
 pub fn roll_back_dialog(app: &mut App, s: &mut RollBack, ui: &mut Ui) -> bool {
     let t = app.look.tokens.clone();
     let kb = app.modal_nav();
-    ui.set_max_width(tk::SHEET_WIDTH);
+    ui.set_max_width(ui.available_width().min(tk::SHEET_WIDTH));
     kit::heading(ui, &t, "Roll back mods");
     ui.add_space(tk::UNIT);
     if s.list.is_empty() {
@@ -881,7 +925,7 @@ fn world_prompts(inst: &Instance, before: chrono::DateTime<chrono::Utc>) -> Vec<
 pub fn world_prompt_dialog(app: &mut App, p: &mut WorldPrompt, ui: &mut Ui) -> bool {
     let t = app.look.tokens.clone();
     let kb = app.modal_nav();
-    ui.set_max_width(tk::SHEET_WIDTH);
+    ui.set_max_width(ui.available_width().min(tk::SHEET_WIDTH));
     kit::heading(ui, &t, "Roll back the world too?");
     ui.add_space(tk::UNIT);
     kit::body(ui, &t, &format!("“{}” was last played with {}, which the rollback took away. Restore the world from a backup as well?", p.name, p.what));
@@ -931,7 +975,10 @@ pub(super) fn pane_head(ui: &mut Ui, t: &Tokens, number: usize, label: &str, asi
     let side_by_side = buttons.is_empty() || cap.size().x + buttons_w + tk::GUTTER * 3.0 <= width;
     let h = if side_by_side { if buttons.is_empty() { tk::SECTION_LABEL_HEIGHT } else { row_h } } else { tk::SECTION_LABEL_HEIGHT + row_h - tk::GAP }.max(min_h);
     let (rect, _) = ui.allocate_exact_size(vec2(width, h), egui::Sense::hover());
-    let cap_y = if side_by_side || buttons.is_empty() { rect.center().y } else { rect.top() + tk::SECTION_LABEL_HEIGHT / 2.0 };
+    // A head stacked (buttons under the caption), or as tall as a stacked neighbour, has its
+    // caption at the top, so neighbours' captions line up as well as their rules.
+    let stacked_h = tk::SECTION_LABEL_HEIGHT + row_h - tk::GAP;
+    let cap_y = if !side_by_side || h >= stacked_h { rect.top() + tk::SECTION_LABEL_HEIGHT / 2.0 } else { rect.center().y };
     let mut job = kit::text::caption_job(&text, t.text_muted);
     job.wrap.max_width = if side_by_side { width - buttons_w - tk::GUTTER * 3.0 } else { width - tk::GUTTER * 2.0 }.max(40.0);
     job.wrap.max_rows = 1;
@@ -1087,7 +1134,7 @@ fn installed(
             let selected = sel.as_ref().is_some_and(|x| stem(x) == stem(m));
             let info = meta.get(m).unwrap_or_default();
             let title = info.name.clone().unwrap_or_else(|| m.display_name().to_string());
-            let size = if m.is_dir { "folder".to_string() } else { w::size_label(m.size) };
+            let size = if m.is_dir { "folder".to_string() } else { kit::text::size_label(m.size) };
             let update = update_for(m);
             let mut badge = match &info.version {
                 Some(v) => format!("{v} · {size}"),
@@ -1232,7 +1279,7 @@ fn details(ui: &mut Ui, t: &Tokens, kind: ContentKind, h: &Hit, open: bool, get:
         facts.push(format!("{} followers", modrinth::format_count(h.follows)));
     }
     if h.date_modified.is_some() {
-        facts.push(format!("updated {}", w::ago(h.date_modified)));
+        facts.push(format!("updated {}", kit::text::ago(h.date_modified)));
     }
     facts.extend(h.categories.iter().take(4).map(|c| c.replace('-', " ")));
     let p = ui.painter();

@@ -1,10 +1,9 @@
 //! An instance's components (Minecraft + loader), and changing them.
 
-use egui::{RichText, Ui};
+use egui::Ui;
 
 use super::nav::{Nav, Zone};
 use super::version_picker::VersionPicker;
-use super::widgets as w;
 use crate::design::kit::{self, Button, table::{Cell, Column}};
 use crate::design::tokens as tk;
 use super::App;
@@ -47,7 +46,6 @@ impl VersionState {
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
-    let t = app.t.clone();
     if app.version.picker.as_ref().is_some_and(|(id, _)| *id != inst.id) {
         app.version.picker = None;
     }
@@ -58,6 +56,7 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
     }
     let Some((_, picker)) = &mut app.version.picker else { return };
 
+    let t = app.look.tokens.clone();
     let mut picker = std::mem::replace(picker, VersionPicker::new(false, None));
     picker.poll(app, ui.ctx());
     let side_nav = app.nav_for(Zone::Side);
@@ -65,39 +64,38 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
     let mut close = false;
     let sel = picker.selection();
     let changed = sel.as_ref().is_some_and(|(mc, l)| *mc != inst.mc_version || *l != inst.loader);
-    ui.horizontal(|ui| {
-        if (ui.add_enabled_ui(changed, |ui| w::primary_button(ui, &t, "apply")).inner.clicked() || (changed && apply_key))
-            && let Some((mc, loader)) = sel.clone()
-        {
-            let mut after = inst.clone();
-            after.mc_version = mc.clone();
-            after.loader = loader.clone();
-            let members: Vec<String> = world_sets::others(&inst.world_set, &inst.id, &app.instances).map(|i| i.name.clone()).collect();
-            if !members.is_empty() && world_sets::mismatch(&after, &inst.world_set, &app.instances).is_some() {
-                // Everyone in a world set plays the same game: ask what to do.
-                app.modal = Some(super::Modal::SetVersion(Box::new(SetVersion { id: inst.id.clone(), name: inst.name.clone(), set: inst.world_set.clone(), members, mc, loader })));
-            } else {
-                set_version(app, &[inst.id.clone()], &mc, &loader);
-            }
-            close = true;
+    // The head says what it is now and what it would be; apply and cancel at its right.
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let now = if inst.loader == Loader::Vanilla { inst.mc_version.clone() } else { format!("{} · {}", inst.mc_version, inst.loader.display()) };
+    let aside = match picker.summary().filter(|_| changed) {
+        Some(to) => format!("{now} to {to}"),
+        None => now,
+    };
+    let buttons = [Button::new("apply").filled().enabled(changed), Button::new("cancel")];
+    let (clicked, _) = super::content::pane_head(ui, &t, 1, "change version", &aside, &buttons, 0.0);
+    if (clicked == Some(0) || (changed && apply_key))
+        && let Some((mc, loader)) = sel.clone()
+    {
+        let mut after = inst.clone();
+        after.mc_version = mc.clone();
+        after.loader = loader.clone();
+        let members: Vec<String> = world_sets::others(&inst.world_set, &inst.id, &app.instances).map(|i| i.name.clone()).collect();
+        if !members.is_empty() && world_sets::mismatch(&after, &inst.world_set, &app.instances).is_some() {
+            // Everyone in a world set plays the same game: ask what to do.
+            app.modal = Some(super::Modal::SetVersion(Box::new(SetVersion { id: inst.id.clone(), name: inst.name.clone(), set: inst.world_set.clone(), members, mc, loader })));
+        } else {
+            set_version(app, &[inst.id.clone()], &mc, &loader);
         }
-        if w::button(ui, "cancel").clicked() {
-            close = true;
-        }
-        if let Some((mc, loader)) = &sel
-            && changed
-        {
-            let text = if *loader == Loader::Vanilla { mc.clone() } else { format!("{mc}  ·  {}", loader.display()) };
-            ui.label(RichText::new(format!("→ {text}")).color(t.accent));
-        }
-    });
-    ui.add_space(6.0);
-    ui.columns(2, |cols| {
-        let focus = app.focus;
-        picker.versions_ui(app, &mut cols[0], main_nav, focus == Zone::Main);
-        let h = cols[1].available_height() - 60.0;
-        picker.loader_ui(app, &mut cols[1], h, side_nav, focus == Zone::Side);
-    });
+        close = true;
+    }
+    if clicked == Some(1) {
+        close = true;
+    }
+    let left_w = (ui.available_width() * tk::VERSION_PANE_SHARE).max(tk::LIST_RAIL_MIN.min(ui.available_width() / 2.0));
+    let (mut left, mut right) = super::content::panes(ui, &t, left_w);
+    let focus = app.focus;
+    picker.versions_ui(app, &mut left, main_nav, focus == Zone::Main, 2);
+    picker.loader_ui(app, &mut right, side_nav, focus == Zone::Side, 3);
     if close {
         app.version.picker = None;
     } else if let Some((_, slot)) = &mut app.version.picker {
@@ -195,15 +193,16 @@ pub struct SetVersion {
 
 /// The dialog for [`SetVersion`]. Returns true once it's done.
 pub fn set_version_dialog(app: &mut App, s: &SetVersion, ui: &mut Ui) -> bool {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let activate = app.modal_nav() == Some(Nav::Activate);
-    ui.set_width(460.0);
-    w::heading(ui, &t, "Change the world set's version?");
-    ui.add_space(8.0);
+    ui.set_max_width(ui.available_width().min(tk::SETTING_DESCRIPTION_WIDTH));
+    kit::heading(ui, &t, "Change the world set's version?");
+    ui.add_space(tk::UNIT);
     let what = if s.loader == Loader::Vanilla { s.mc.clone() } else { format!("{} with {}", s.mc, s.loader.display()) };
-    w::para(
+    kit::body(
         ui,
-        format!(
+        &t,
+        &format!(
             "{} shares the worlds of “{}” with {}, and every instance in a world set plays the same Minecraft version and loader. Change them all to {what}, or have {} leave the set with its own copy of the worlds?",
             s.name,
             s.set,
@@ -211,11 +210,12 @@ pub fn set_version_dialog(app: &mut App, s: &SetVersion, ui: &mut Ui) -> bool {
             s.name
         ),
     );
-    ui.add_space(14.0);
+    ui.add_space(tk::GUTTER);
     let mut done = false;
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = tk::GAP;
         let all = format!("change all {}", s.members.len() + 1);
-        if w::primary_button(ui, &t, &all).clicked() || activate {
+        if Button::new(&all).filled().show(ui, &t).clicked() || activate {
             let ids: Vec<String> = app.instances.iter().filter(|i| i.id == s.id || i.world_set == s.set).map(|i| i.id.clone()).collect();
             let busy = ids.iter().find_map(|id| {
                 let name = app.instances.iter().find(|i| &i.id == id).map(|i| i.name.clone()).unwrap_or_default();
@@ -227,7 +227,7 @@ pub fn set_version_dialog(app: &mut App, s: &SetVersion, ui: &mut Ui) -> bool {
             }
             done = true;
         }
-        if w::button(ui, "leave the set").clicked() {
+        if Button::new("leave the set").show(ui, &t).clicked() {
             if let Some(why) = app.instance_busy(&s.id).map(String::from).or_else(|| app.set_busy(Kind::Worlds, &s.set, &s.id)) {
                 app.toast(ToastKind::Error, format!("Can't leave “{}” while {why}", s.set));
             } else if let Some(i) = app.instances.iter_mut().find(|i| i.id == s.id) {
@@ -240,7 +240,7 @@ pub fn set_version_dialog(app: &mut App, s: &SetVersion, ui: &mut Ui) -> bool {
             }
             done = true;
         }
-        if w::button(ui, "cancel").clicked() {
+        if Button::new("cancel").show(ui, &t).clicked() {
             done = true;
         }
     });

@@ -15,7 +15,6 @@ mod settings;
 mod skin_view;
 mod version;
 mod version_picker;
-pub mod widgets;
 mod kit_gallery;
 mod worlds;
 
@@ -38,7 +37,7 @@ use crate::mojang::{self, Manifest};
 use crate::task::{Promise, Task, TaskStatus};
 use crate::design::kit::{self, sheet::StripAnswer};
 use crate::design::tokens as tk;
-use crate::design::{Look, Theme};
+use crate::design::Look;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -93,6 +92,8 @@ pub enum ConfirmAction {
     DeletePath(std::path::PathBuf),
     /// Back to the default skin, for this account UUID.
     ResetSkin(String),
+    /// Forget an account (signed out; it can sign in again), by UUID.
+    RemoveAccount(String),
     /// A share or world set no instance uses, with its files.
     DeleteSet(Kind, String),
     /// Put a world back from a backup: (instance id, the backup).
@@ -176,9 +177,6 @@ impl Toast {
 
 pub struct App {
     pub rt: tokio::runtime::Handle,
-    /// The old screens' colours, kept in step with `look` (screens move to `look.tokens` and
-    /// the kit phase by phase).
-    pub t: Theme,
     /// Tokens, light/dark crossfade, fonts (re-resolved only when fontconfig changes).
     pub look: Look,
     /// `ASTERIA_DEBUG_VIEW=kit`: the kit gallery instead of the app.
@@ -223,6 +221,8 @@ pub struct App {
     exports: Vec<(Task, Promise<crate::export::Exported>, String)>,
     /// Settings → reclaim disk space, while it runs.
     pub reclaim: Option<(Task, Promise<crate::store::Reclaimed>)>,
+    /// What the last reclaim did, shown in settings as a figure.
+    pub reclaimed: Option<crate::store::Reclaimed>,
     /// Shared folders being linked or unlinked: (task, (notes, errors)).
     pub sharing: Option<(Task, Promise<(Vec<String>, Vec<String>)>)>,
     /// Share sets with a folder on disk, re-read when sharing changes.
@@ -251,7 +251,6 @@ impl App {
         let ctx = egui_ctx.clone();
         smithay_clipboard::set_drop_notify(move || ctx.request_repaint());
         let look = Look::new(egui_ctx);
-        let t = look.theme.clone();
         let instances = instance::load_all();
         let cfg = Config::load();
         let mut groups = crate::groups::Groups::load();
@@ -262,7 +261,6 @@ impl App {
             groups,
             sizes: SizeCache::default(),
             rt,
-            t,
             look,
             kit_gallery: (std::env::var("ASTERIA_DEBUG_VIEW").as_deref() == Ok("kit")).then(Default::default),
             keymap: Keymap::new(&cfg.keys),
@@ -295,6 +293,7 @@ impl App {
             imports: Vec::new(),
             exports: Vec::new(),
             reclaim: None,
+            reclaimed: None,
             sharing: None,
             share_sets: crate::shares::sets_on_disk(Kind::Packs),
             share_links: crate::shares::sets_in_use(Kind::Packs),
@@ -562,7 +561,10 @@ impl App {
             let r = p.take().unwrap();
             task.finish(&r.as_ref().map(|_| ()).map_err(|e| anyhow::anyhow!("{e:#}")));
             match r {
-                Ok(done) => self.toast(ToastKind::Info, done.summary()),
+                Ok(done) => {
+                    self.toast(ToastKind::Info, done.summary());
+                    self.reclaimed = Some(done);
+                }
                 Err(e) => self.toast(ToastKind::Error, format!("Couldn't reclaim space: {e:#}")),
             }
         }
@@ -1079,9 +1081,7 @@ impl App {
     }
 
     fn refresh_theme(&mut self, ctx: &egui::Context) {
-        if self.look.frame(ctx) {
-            self.t = self.look.theme.clone();
-        }
+        self.look.frame(ctx);
     }
 }
 
@@ -1140,6 +1140,13 @@ impl App {
             ConfirmAction::ForgetSearch(id) => mod_sets::forget_search(self, ctx, id),
             ConfirmAction::RevertConfig => config::revert(self),
             ConfirmAction::ResetSkin(uuid) => accounts::skin_change(self, ctx, uuid, crate::skins::Change::Reset),
+            ConfirmAction::RemoveAccount(uuid) => {
+                self.accounts.remove(uuid);
+                self.acct.forget(uuid);
+                if let Err(e) = self.accounts.save() {
+                    self.toast(ToastKind::Error, format!("Couldn't save accounts: {e}"));
+                }
+            }
             ConfirmAction::DeleteSet(kind, name) => {
                 // Checked again: an instance may have joined since the dialog opened.
                 // `delete_set` also refuses while any instance still links into the set.
@@ -1492,7 +1499,7 @@ fn message(app: &mut App, ui: &mut Ui, text: &str) -> bool {
     let t = app.look.tokens.clone();
     let mut close = false;
     egui::ScrollArea::vertical().max_height(ui.available_height() - tk::BUTTON_HEIGHT - tk::GUTTER * 2.0).auto_shrink([false, true]).show(ui, |ui| {
-        ui.set_max_width(tk::SETTING_DESCRIPTION_WIDTH * 1.5);
+        ui.set_max_width(ui.available_width().min(tk::SETTING_DESCRIPTION_WIDTH * 1.5));
         kit::body(ui, &t, text);
     });
     ui.add_space(tk::GUTTER);

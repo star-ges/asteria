@@ -11,7 +11,6 @@ use std::time::{Duration, Instant, SystemTime};
 use egui::{Color32, Rect, Ui, vec2};
 
 use super::content::{self, padded};
-use super::widgets as w;
 use super::nav::{Nav, Zone};
 use super::{App, ToastKind};
 use crate::crash::{Analysis, Confidence};
@@ -318,7 +317,7 @@ fn load(path: &Path, inst: &Instance, default_memory_mb: u32) -> anyhow::Result<
 }
 
 fn modified_label(m: Option<SystemTime>) -> String {
-    m.map(|m| w::ago(Some(chrono::DateTime::<chrono::Utc>::from(m)))).unwrap_or_default()
+    m.map(|m| kit::text::ago(Some(chrono::DateTime::<chrono::Utc>::from(m)))).unwrap_or_default()
 }
 
 pub fn history(app: &mut App, ui: &mut Ui, inst: &Instance) {
@@ -447,7 +446,7 @@ fn file_list(ui: &mut Ui, t: &Tokens, s: &mut LogsState, files: &[LogFile], sel:
         let mut list = kit::HoverList::begin(ui, kit::Variant::Compact).indent(tk::GUTTER + tk::HOVER_SHIFT_COMPACT);
         for f in files {
             let on = f.path == sel;
-            let desc = format!("{} · {}", modified_label(f.modified), w::size_label(f.size));
+            let desc = format!("{} · {}", modified_label(f.modified), kit::text::size_label(f.size));
             let mut row = kit::HoverRow::new(("log-file", &f.path), &f.name).description(&desc).selected(on).hot(on && focused);
             if f.crash {
                 row = row.badge("crash", t.error());

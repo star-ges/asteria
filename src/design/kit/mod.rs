@@ -19,7 +19,7 @@ pub mod text;
 pub mod tiles;
 
 pub use bar::{BarCell, bar, mark_cell};
-pub use button::{Button, button_row, segmented};
+pub use button::{Button, button_row, menu, segmented};
 pub use field::{Field, query};
 pub use hover_list::{HoverList, HoverRow, Variant};
 pub use row::QuietRow;

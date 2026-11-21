@@ -82,7 +82,7 @@ fn main() -> eframe::Result {
         "Asteria",
         options,
         Box::new(move |cc| {
-            let mut root = Root { rt: handle, app: None, waiting: None, next_try: std::time::Instant::now() };
+            let mut root = Root { rt: handle, app: None, waiting: None, next_try: std::time::Instant::now(), styled: false };
             root.start(&cc.egui_ctx);
             Ok(Box::new(root))
         }),
@@ -97,6 +97,8 @@ struct Root {
     app: Option<Box<ui::App>>,
     waiting: Option<String>,
     next_try: std::time::Instant,
+    /// The waiting page's fonts and style are set.
+    styled: bool,
 }
 
 impl Root {
@@ -115,8 +117,11 @@ impl Root {
             }
             Err(e) => self.waiting = Some(format!("Couldn't move Omacraft's files over: {e:#}")),
         }
-        if self.app.is_none() {
-            design::Theme::starshell(design::system::preference().dark).apply(ctx);
+        if self.app.is_none() && !self.styled {
+            // The waiting page draws with the kit: its fonts and style, once.
+            design::fonts::FontSet::resolve().apply(ctx);
+            design::style::apply(ctx, &design::tokens::Tokens::new(design::system::preference().dark));
+            self.styled = true;
         }
         self.next_try = std::time::Instant::now() + std::time::Duration::from_secs(2);
     }
@@ -135,18 +140,21 @@ impl eframe::App for Root {
             }
         }
         ctx.request_repaint_after(std::time::Duration::from_secs(2));
-        let t = design::Theme::starshell(design::system::preference().dark);
-        egui::CentralPanel::default().show(ui, |ui| {
+        let t = design::tokens::Tokens::new(design::system::preference().dark);
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(t.background)).show(ui, |ui| {
             ui.add_space(ui.available_height() * 0.3);
-            ui.vertical_centered(|ui| {
-                ui.set_max_width(520.0);
-                ui::widgets::heading(ui, &t, "Waiting for Omacraft");
-                ui.add_space(8.0);
-                ui::widgets::para(ui, egui::RichText::new(self.waiting.as_deref().unwrap_or_default()).color(t.fg));
-                ui.add_space(12.0);
-                if ui::widgets::button(ui, "try again").clicked() {
-                    self.start(&ctx);
-                }
+            ui.horizontal(|ui| {
+                ui.add_space(design::tokens::GUTTER * 2.0);
+                ui.vertical(|ui| {
+                    ui.set_max_width(design::tokens::SETTING_DESCRIPTION_WIDTH);
+                    design::kit::heading(ui, &t, "Waiting for Omacraft");
+                    ui.add_space(design::tokens::UNIT);
+                    design::kit::body(ui, &t, self.waiting.as_deref().unwrap_or_default());
+                    ui.add_space(design::tokens::GUTTER);
+                    if design::kit::Button::new("try again").show(ui, &t).clicked() {
+                        self.start(&ctx);
+                    }
+                });
             });
         });
     }

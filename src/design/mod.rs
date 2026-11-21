@@ -1,17 +1,16 @@
 //! Asteria's design system: StarShell's language in egui. `tokens` names every value,
 //! `system` follows the desktop (light/dark, reduced motion, fonts), `motion` eases, `fonts`
-//! finds the type faces, `glyphs` names Phosphor icons, and `kit` is the widget kit.
-//! `legacy` keeps the old screens drawing until each moves to the kit.
+//! finds the type faces, `glyphs` names Phosphor icons, `style` dresses egui's stock widgets
+//! from the tokens, and `kit` is the widget kit.
 
 pub mod fonts;
 pub mod glyphs;
 pub mod kit;
-pub mod legacy;
 pub mod motion;
+pub mod style;
 pub mod system;
 pub mod tokens;
 
-pub use legacy::Theme;
 pub use system::Look;
 
 /// Runs one frame for a test: a context with the kit's fonts (bundled and egui's only), at

@@ -109,7 +109,7 @@ fn list() -> anyhow::Result<()> {
                 pad(&name_of(i), nw),
                 pad(&i.mc_version, vw),
                 pad(&i.loader.display(), lw),
-                paint(muted, &crate::ui::widgets::ago(i.last_played)),
+                paint(muted, &crate::design::kit::text::ago(i.last_played)),
             );
         }
     }

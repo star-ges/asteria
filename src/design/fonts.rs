@@ -8,17 +8,14 @@
 //! - JetBrains Mono (`raw`) for raw text only: the system's if it has the plain family, else
 //!   the bundled Regular (OFL 1.1, licence beside it in `assets/fonts`).
 //!
-//! The old screens still draw with fontconfig's `monospace` and a Nerd Font for their
-//! glyphs (egui's `Monospace`/`Proportional` families and `bold`); those go once the last
-//! screen has moved to the kit.
+//! egui's own `Proportional` and `Monospace` families (stock widgets: context menus, tooltips)
+//! are the text face and JetBrains Mono.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::{FontData, FontDefinitions, FontFamily, FontId};
 
-/// Symbols Nerd Font Mono v3.5.1 (MIT), for the old screens' glyphs.
-static BUNDLED_NERD: &[u8] = include_bytes!("../../assets/fonts/SymbolsNerdFontMono-Regular.ttf");
 /// Phosphor 2.1.2 (MIT), from `@phosphor-icons/web`.
 static PHOSPHOR: &[u8] = include_bytes!("../../assets/fonts/Phosphor.ttf");
 static PHOSPHOR_BOLD: &[u8] = include_bytes!("../../assets/fonts/Phosphor-Bold.ttf");
@@ -57,17 +54,8 @@ pub fn raw(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(RAW.into()))
 }
 
-/// The old screens' bold monospace.
-pub fn bold(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name("bold".into()))
-}
-
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FontSet {
-    /// The old screens' fonts: fontconfig's `monospace`, its bold, and a Nerd Font if installed.
-    pub regular: Option<PathBuf>,
-    pub bold: Option<PathBuf>,
-    pub nerd: Option<PathBuf>,
     pub text: Option<PathBuf>,
     pub heading: Option<PathBuf>,
     pub display: Option<PathBuf>,
@@ -111,13 +99,6 @@ impl FontSet {
         let heading = pick("Switzer", "Extrabold", "sans-serif:bold");
         let display = pick("Melodrama", "Medium", "sans-serif:medium");
         Self {
-            regular: fc_match("monospace").map(|(_, p)| p),
-            bold: fc_match("monospace:bold").map(|(_, p)| p),
-            nerd: ["Symbols Nerd Font Mono", "JetBrainsMono Nerd Font"]
-                .iter()
-                .filter_map(|f| fc_match(f))
-                .map(|(_, p)| p)
-                .find(|p| p.to_string_lossy().contains("Nerd")),
             text,
             heading,
             display,
@@ -142,31 +123,10 @@ impl FontSet {
             true
         };
 
-        // The old screens.
-        let mut mono: Vec<String> = Vec::new();
-        if load("mono", &self.regular) {
-            mono.push("mono".into());
-        }
-        let has_bold = load("mono-bold", &self.bold);
-        if load("nerd", &self.nerd) {
-            mono.push("nerd".into());
-        }
         let has_text = load(TEXT, &self.text);
         let has_heading = load(HEADING, &self.heading);
         let has_display = load(DISPLAY, &self.display);
         let has_raw = load(RAW, &self.raw);
-        // Bundled last, so icons render even without a Nerd Font installed.
-        defs.font_data.insert("bundled-nerd".into(), Arc::new(FontData::from_static(BUNDLED_NERD)));
-        mono.push("bundled-nerd".into());
-        for family in [FontFamily::Monospace, FontFamily::Proportional] {
-            let fam = defs.families.entry(family).or_default();
-            for (i, name) in mono.iter().enumerate() {
-                fam.insert(i, name.clone());
-            }
-        }
-        let mut bold = if has_bold { vec!["mono-bold".to_string()] } else { Vec::new() };
-        bold.extend(defs.families[&FontFamily::Monospace].iter().cloned());
-        defs.families.insert(FontFamily::Name("bold".into()), bold);
 
         // The kit.
         defs.font_data.insert(ICONS.into(), Arc::new(FontData::from_static(PHOSPHOR)));
@@ -184,6 +144,9 @@ impl FontSet {
         defs.families.insert(FontFamily::Name(RAW.into()), chain(Some(RAW)));
         defs.families.insert(FontFamily::Name(ICONS.into()), vec![ICONS.into()]);
         defs.families.insert(FontFamily::Name(ICONS_BOLD.into()), vec![ICONS_BOLD.into()]);
+        // egui's stock widgets: the text face and the raw face.
+        defs.families.insert(FontFamily::Proportional, chain(has_text.then_some(TEXT)));
+        defs.families.insert(FontFamily::Monospace, chain(Some(RAW)));
         defs
     }
 }
@@ -197,8 +160,9 @@ mod tests {
     #[test]
     fn every_family_has_a_face_without_system_fonts() {
         let defs = FontSet::default().definitions();
-        for name in [TEXT, HEADING, DISPLAY, ICONS, ICONS_BOLD, RAW, "bold"] {
-            let fam = &defs.families[&FontFamily::Name(name.into())];
+        for family in [TEXT, HEADING, DISPLAY, ICONS, ICONS_BOLD, RAW].map(|n| FontFamily::Name(n.into())).into_iter().chain([FontFamily::Proportional, FontFamily::Monospace]) {
+            let name = format!("{family:?}");
+            let fam = &defs.families[&family];
             assert!(fam.iter().any(|f| defs.font_data.contains_key(f)), "{name} has no face");
         }
     }

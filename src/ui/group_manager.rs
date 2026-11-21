@@ -1,12 +1,18 @@
-//! Manage groups (g): create, rename, colour, reorder, delete, and choose
-//! which instances belong to each.
+//! Manage groups (g): create, rename, colour, reorder, delete, and choose which instances
+//! belong to each. The groups as a compact hover list (each with its clarity hue's tick) beside
+//! the selected one: its settings, then its instances as a checklist.
 
-use egui::{Align, CornerRadius, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
+use egui::{Align, Layout, Sense, Ui, vec2};
 
-use super::widgets::{self as w, Lead};
+use super::content::{padded, pane_head, sheet_foot, sheet_panes};
 use super::nav::Nav;
 use super::{App, ToastKind};
+use crate::design::glyphs;
+use crate::design::kit::{self, Button, HoverList, HoverRow, QuietRow, SettingRow, Variant};
+use crate::design::motion;
+use crate::design::tokens::{self as tk, Tokens};
 use crate::groups::{COLORS, Group};
+use crate::keymap::Action;
 
 #[derive(Default)]
 pub struct GroupManager {
@@ -50,22 +56,22 @@ impl App {
 
 /// Returns true when the dialog should close.
 pub fn show(app: &mut App, s: &mut GroupManager, ui: &mut Ui) -> bool {
-    let t = app.t.clone();
-    let screen = ui.ctx().content_rect();
-    ui.set_width((screen.width() - 80.0).clamp(420.0, 780.0));
-    ui.set_height((screen.height() - 120.0).clamp(300.0, 520.0));
+    let t = app.look.tokens.clone();
     if s.selected.as_ref().is_some_and(|n| app.groups.get(n).is_none()) {
         s.select(None);
     }
-
-    w::heading(ui, &t, "Groups");
-    ui.add_space(10.0);
-    let mut close = false;
+    ui.spacing_mut().item_spacing.y = 0.0;
+    kit::heading(ui, &t, "Groups");
+    ui.add_space(tk::UNIT);
+    ui.scope(|ui| {
+        ui.set_max_width(ui.available_width().min(tk::SETTING_DESCRIPTION_WIDTH));
+        kit::body_muted(ui, &t, "Groups order the instance list. A group's colour marks its label and its instances.");
+    });
+    ui.add_space(tk::GUTTER);
 
     // Keyboard: j/k groups, l into members (space toggles), h back,
     // a new, r rename, c colour, J/K reorder, x delete.
     let kb = app.modal_nav();
-    let key = |n: Nav| kb == Some(n);
     match kb {
         Some(Nav::Right) if s.selected.is_some() => s.in_members = true,
         Some(Nav::Left) => s.in_members = false,
@@ -73,7 +79,8 @@ pub fn show(app: &mut App, s: &mut GroupManager, ui: &mut Ui) -> bool {
         Some(Nav::Rename) => s.focus_rename = true,
         _ => {}
     }
-    if let Some(n) = kb.filter(|n| n.is_move()) {
+    let moved = kb.filter(|n| n.is_move());
+    if let Some(n) = moved {
         if s.in_members {
             s.member = n.step(app.instances.len(), Some(s.member)).unwrap_or(0);
         } else {
@@ -85,38 +92,47 @@ pub fn show(app: &mut App, s: &mut GroupManager, ui: &mut Ui) -> bool {
         }
     }
     let in_members = s.in_members;
+    let foot = tk::LINE + tk::GAP + tk::BUTTON_HEIGHT + tk::GUTTER;
+    let (mut left, mut right) = sheet_panes(ui, &t, 0.4, tk::LIST_RAIL_MIN, foot);
 
-    ui.columns(2, |cols| {
-        // -- left: the groups
-        let ui = &mut cols[0];
-        w::section(ui, &t, "groups");
-        let list = app.groups.list.clone();
-        egui::ScrollArea::vertical().id_salt("groups").max_height(ui.available_height() - 90.0).auto_shrink(false).show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 2.0;
-            if list.is_empty() {
-                w::para(ui, RichText::new("no groups yet").color(t.muted));
+    // -- left: the groups, and a new one
+    {
+    let ui = &mut left;
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let list = app.groups.list.clone();
+    pane_head(ui, &t, 1, "groups", &list.len().to_string(), &[], 0.0);
+    let list_h = (ui.available_height() - tk::FIELD_HEIGHT - tk::GAP * 2.0).max(tk::LIST_ROW_HEIGHT_COMPACT);
+    egui::ScrollArea::vertical().id_salt("groups").max_height(list_h).auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        if list.is_empty() {
+            padded(ui, |ui| kit::loading(ui, &t, "none yet"));
+        }
+        let mut rows = HoverList::begin(ui, Variant::Compact).indent(tk::GUTTER + tk::HOVER_SHIFT_COMPACT);
+        for g in &list {
+            let count = app.instances.iter().filter(|i| i.group == g.name).count();
+            let desc = if count == 1 { "1 instance".to_string() } else { format!("{count} instances") };
+            let on = s.selected.as_deref() == Some(g.name.as_str());
+            let hue = g.color.as_deref().and_then(|c| t.named(c));
+            let r = rows.row(ui, &t, HoverRow::new(("group", &g.name), &g.name).description(&desc).hue(hue).selected(on).hot(on && !in_members));
+            if on && !in_members && moved.is_some() {
+                r.scroll_to_me(None);
             }
-            for g in &list {
-                let count = app.instances.iter().filter(|i| i.group == g.name).count();
-                let tint = g.color.as_deref().and_then(|c| t.named(c));
-                let on = s.selected.as_deref() == Some(g.name.as_str());
-                let r = w::lead_row(ui, &t, on, Lead::Glyph("󰉋"), &g.name, &count.to_string(), tint);
-                if on && !in_members {
-                    w::focus_mark(ui, &t, r.rect);
-                }
-                if r.clicked() {
-                    s.select(Some(g.name.clone()));
-                    s.in_members = false;
-                }
+            if r.clicked() {
+                s.select(Some(g.name.clone()));
+                s.in_members = false;
             }
-        });
-        ui.add_space(8.0);
+        }
+        rows.end(ui);
+    });
+    ui.add_space(tk::GAP);
+    padded(ui, |ui| {
         ui.horizontal(|ui| {
-            let r = w::text_input(ui, &mut s.new_name, "new group", ui.available_width() - 60.0, std::mem::take(&mut s.focus_new));
+            ui.spacing_mut().item_spacing.x = tk::GAP;
             let name = s.new_name.trim().to_string();
             let ok = !name.is_empty() && app.groups.get(&name).is_none();
-            let add = ui.add_enabled_ui(ok, |ui| w::button(ui, "add")).inner.clicked()
-                || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+            let add_w = Button::new("add").width(ui, &t);
+            let r = kit::Field::new(&mut s.new_name).hint("New group").width(ui.available_width() - add_w - tk::GAP).focus(std::mem::take(&mut s.focus_new)).show(ui, &t);
+            let add = Button::new("add").enabled(ok).show(ui, &t).clicked() || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
             if add {
                 app.groups.list.push(Group { name: name.clone(), color: None });
                 app.save_groups();
@@ -124,21 +140,48 @@ pub fn show(app: &mut App, s: &mut GroupManager, ui: &mut Ui) -> bool {
                 s.select(Some(name));
             }
         });
+    });
 
-        // -- right: the selected group
-        let ui = &mut cols[1];
-        let Some(name) = s.selected.clone() else {
-            w::empty_state(ui, &t, "󰉋", "select or create a group", "Groups can have a colour, and instances can move between them.");
-            return;
-        };
+    }
 
-        w::section(ui, &t, "name");
-        ui.horizontal(|ui| {
-            let r = w::text_input(ui, &mut s.rename, "", ui.available_width() - 80.0, std::mem::take(&mut s.focus_rename));
+    // -- right: the selected group
+    {
+    let ui = &mut right;
+    ui.spacing_mut().item_spacing.y = 0.0;
+    if let Some(name) = s.selected.clone() {
+        group_page(app, s, ui, &t, &name, kb);
+    } else {
+        padded(ui, |ui| kit::empty_state(ui, &t, "Pick or make a group", "Groups can have a colour, and instances move between them here or by dragging them in the list.", None));
+    }
+    }
+
+    let k = |a| app.keymap.label(a);
+    let hints = [
+        (format!("{}/{}", k(Action::FocusLeft), k(Action::FocusRight)), "groups/instances"),
+        (k(Action::Add), "new"),
+        (k(Action::Rename), "rename"),
+        (k(Action::Cycle), "colour"),
+        (k(Action::Delete), "delete"),
+    ];
+    sheet_foot(ui, &t, &hints, &[Button::new("close")]) == Some(0)
+}
+
+/// The selected group: its name, colour, place and deletion, then its instances.
+fn group_page(app: &mut App, s: &mut GroupManager, ui: &mut Ui, t: &Tokens, name: &str, kb: Option<Nav>) {
+    let key = |n: Nav| kb == Some(n);
+    let in_members = s.in_members;
+    let count = app.instances.iter().filter(|i| i.group == name).count();
+    let aside = if count == 1 { "1 instance".to_string() } else { format!("{count} instances") };
+    let mut deleted = false;
+    pane_head(ui, t, 2, name, &aside, &[], 0.0);
+    ui.scope(|ui| {
+        SettingRow::new("Name").show(ui, t, |ui| {
             let new = s.rename.trim().to_string();
             let ok = !new.is_empty() && new != name;
-            let go = ui.add_enabled_ui(ok, |ui| w::button(ui, "rename")).inner.clicked()
-                || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+            let go = Button::new("rename").enabled(ok).show(ui, t).clicked();
+            let w = (ui.available_width().min(tk::SETTING_CONTROL_WIDTH) - tk::GAP).max(tk::GUTTER * 4.0);
+            let r = kit::Field::new(&mut s.rename).width(w).focus(std::mem::take(&mut s.focus_rename)).show(ui, t);
+            let go = go || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
             if go {
                 if app.groups.get(&new).is_some() {
                     app.toast(ToastKind::Error, format!("There's already a group called {new}"));
@@ -146,8 +189,8 @@ pub fn show(app: &mut App, s: &mut GroupManager, ui: &mut Ui) -> bool {
                     if let Some(g) = app.groups.list.iter_mut().find(|g| g.name == name) {
                         g.name = new.clone();
                     }
-                    app.regroup(&name, &new);
-                    for c in app.cfg.collapsed_groups.iter_mut().filter(|c| **c == name) {
+                    app.regroup(name, &new);
+                    for c in app.cfg.collapsed_groups.iter_mut().filter(|c| *c == name) {
                         *c = new.clone();
                     }
                     let _ = app.cfg.save();
@@ -156,34 +199,12 @@ pub fn show(app: &mut App, s: &mut GroupManager, ui: &mut Ui) -> bool {
                 }
             }
         });
-        let name = s.selected.clone().unwrap();
-
-        ui.add_space(6.0);
-        w::section(ui, &t, "colour");
-        let current = app.groups.color(&name).map(String::from);
+        let current = app.groups.color(name).map(String::from);
+        let hue_name = current.clone().unwrap_or_else(|| "none".into());
         let mut pick: Option<Option<String>> = None;
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            let size = vec2(26.0, 26.0);
-            for c in std::iter::once(None).chain(COLORS.iter().map(|c| Some(c.to_string()))) {
-                let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-                let p = ui.painter();
-                match c.as_deref().and_then(|c| t.named(c)) {
-                    Some(col) => {
-                        p.rect_filled(rect.shrink(3.0), CornerRadius::ZERO, col);
-                    }
-                    None => {
-                        p.rect_stroke(rect.shrink(3.0), CornerRadius::ZERO, Stroke::new(1.0, t.muted), StrokeKind::Inside);
-                        p.line_segment([rect.shrink(6.0).left_bottom(), rect.shrink(6.0).right_top()], Stroke::new(1.0, t.muted));
-                    }
-                }
-                if c == current {
-                    p.rect_stroke(rect, CornerRadius::ZERO, Stroke::new(2.0, t.fg_light), StrokeKind::Inside);
-                }
-                let resp = resp.on_hover_text(c.as_deref().unwrap_or("none")).on_hover_cursor(egui::CursorIcon::PointingHand);
-                if resp.clicked() {
-                    pick = Some(c);
-                }
+        SettingRow::new("Colour").caption(&hue_name).show(ui, t, |ui| {
+            if let Some(c) = swatches(ui, t, current.as_deref()) {
+                pick = Some(c);
             }
         });
         if key(Nav::Cycle) {
@@ -200,74 +221,99 @@ pub fn show(app: &mut App, s: &mut GroupManager, ui: &mut Ui) -> bool {
             }
             app.save_groups();
         }
-
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            let i = app.groups.list.iter().position(|g| g.name == name).unwrap_or(0);
-            let n = app.groups.list.len();
-            if ui.add_enabled_ui(i > 0, |ui| w::button(ui, "↑")).inner.on_hover_text("move up").clicked() || (i > 0 && key(Nav::MoveUp)) {
+        let i = app.groups.list.iter().position(|g| g.name == name).unwrap_or(0);
+        let n = app.groups.list.len();
+        SettingRow::new("Place").caption(&format!("{} of {n} in the list", i + 1)).show(ui, t, |ui| {
+            let clicked = kit::button_row(ui, t, &[Button::new("").icon(glyphs::ARROW_UP).enabled(i > 0), Button::new("").icon(glyphs::ARROW_DOWN).enabled(i + 1 < n)]);
+            if (clicked == Some(0) || key(Nav::MoveUp)) && i > 0 {
                 app.groups.list.swap(i, i - 1);
                 app.save_groups();
             }
-            if ui.add_enabled_ui(i + 1 < n, |ui| w::button(ui, "↓")).inner.on_hover_text("move down").clicked() || (i + 1 < n && key(Nav::MoveDown)) {
+            if (clicked == Some(1) || key(Nav::MoveDown)) && i + 1 < n {
                 app.groups.list.swap(i, i + 1);
                 app.save_groups();
             }
-            if w::danger_button(ui, &t, "delete group").on_hover_text("its instances stay, ungrouped").clicked() || (!in_members && key(Nav::Delete)) {
+        });
+        SettingRow::new("Delete").caption("its instances stay, ungrouped").show(ui, t, |ui| {
+            if Button::new("delete group").icon(glyphs::TRASH).show(ui, t).clicked() || (!in_members && key(Nav::Delete)) {
                 app.groups.list.retain(|g| g.name != name);
-                app.regroup(&name, "");
-                app.cfg.collapsed_groups.retain(|c| *c != name);
+                app.regroup(name, "");
+                app.cfg.collapsed_groups.retain(|c| c != name);
                 let _ = app.cfg.save();
                 app.save_groups();
-                s.select(None);
-            }
-        });
-        if s.selected.is_none() {
-            return;
-        }
-
-        ui.add_space(6.0);
-        w::section(ui, &t, "instances");
-        egui::ScrollArea::vertical().id_salt("members").max_height(ui.available_height() - 50.0).auto_shrink(false).show(ui, |ui| {
-            let mut changed = None;
-            for (n, inst) in app.instances.iter().enumerate() {
-                let mut member = inst.group == name;
-                let cursor = in_members && s.member == n;
-                if cursor && key(Nav::Toggle) {
-                    changed = Some((n, !member));
-                }
-                let row = ui.horizontal(|ui| {
-                    if ui.checkbox(&mut member, "").changed() {
-                        changed = Some((n, member));
-                    }
-                    let mut text = egui::text::LayoutJob::default();
-                    RichText::new(&inst.name).color(t.fg).append_to(&mut text, ui.style(), egui::FontSelection::Default, Align::Center);
-                    if !member && !inst.group.is_empty() {
-                        RichText::new(format!("  in {}", inst.group)).color(t.muted).append_to(&mut text, ui.style(), egui::FontSelection::Default, Align::Center);
-                    }
-                    if ui.add(egui::Label::new(text).truncate().sense(Sense::click())).clicked() {
-                        changed = Some((n, !member));
-                    }
-                });
-                if cursor {
-                    w::focus_mark(ui, &t, row.response.rect);
-                    if kb.is_some_and(|n| n.is_move()) {
-                        row.response.scroll_to_me(None);
-                    }
-                }
-            }
-            if let Some((n, member)) = changed {
-                let i = &mut app.instances[n];
-                i.group = if member { name.clone() } else { String::new() };
-                let _ = i.save();
+                deleted = true;
             }
         });
     });
+    kit::rule(ui, t, true);
+    if deleted {
+        s.select(None);
+        return;
+    }
+    let name = s.selected.clone().unwrap_or_default();
 
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::Max), |ui| {
-        if w::button(ui, "close").clicked() {
-            close = true;
+    pane_head(ui, t, 3, "instances", &format!("{count} in {name}"), &[], 0.0);
+    let mut changed = None;
+    egui::ScrollArea::vertical().id_salt("members").auto_shrink(false).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        for (n, inst) in app.instances.iter().enumerate() {
+            let member = inst.group == name;
+            let cursor = in_members && s.member == n;
+            if cursor && key(Nav::Toggle) {
+                changed = Some((n, !member));
+            }
+            let aside = if !member && !inst.group.is_empty() { format!("in {}", inst.group) } else { String::new() };
+            let (r, _) = QuietRow::new(("member", &inst.id), &inst.name).check(member).aside(&aside, None).hot(cursor).selected(cursor).show(ui, t, |_| ());
+            if cursor && kb.is_some_and(|n| n.is_move()) {
+                r.scroll_to_me(None);
+            }
+            if r.clicked() {
+                s.in_members = true;
+                s.member = n;
+                changed = Some((n, !member));
+            }
         }
     });
-    close
+    if let Some((n, member)) = changed {
+        let i = &mut app.instances[n];
+        i.group = if member { name.clone() } else { String::new() };
+        let _ = i.save();
+    }
+}
+
+/// No colour, then the seven clarity hues, as small squares (a hue is a mark, never a fill
+/// behind text); the current one framed. Laid out right to left, in order. Returns a pick.
+fn swatches(ui: &mut Ui, t: &Tokens, current: Option<&str>) -> Option<Option<String>> {
+    let side = tk::SWATCH_SIZE;
+    let all: Vec<Option<&str>> = std::iter::once(None).chain(COLORS.iter().copied().map(Some)).collect();
+    let mut pick = None;
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = tk::UNIT / 2.0;
+        for c in all.iter().rev() {
+            let (rect, resp) = ui.allocate_exact_size(vec2(side, side), Sense::click());
+            let on = *c == current;
+            let hot = resp.hovered() || resp.has_focus();
+            let p = ui.painter();
+            let inner = rect.shrink(tk::SWITCH_INSET);
+            match c.and_then(|c| t.named(c)) {
+                Some(col) => {
+                    p.rect_filled(inner, 0.0, col);
+                }
+                None => {
+                    kit::rule::frame(p, inner, t.text_muted);
+                    p.line_segment([inner.left_bottom(), inner.right_top()], egui::Stroke::new(tk::LINE, t.text_muted));
+                }
+            }
+            // The current one framed in ink; the one you reach for in the accent.
+            let rest = if on { t.text_strong } else { egui::Color32::TRANSPARENT };
+            kit::rule::frame(p, rect, motion::color(ui.ctx(), resp.id, hot, rest, t.accent));
+            let label = c.unwrap_or("no colour").to_string();
+            let resp = resp.on_hover_text(&label).on_hover_cursor(egui::CursorIcon::PointingHand);
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, &label));
+            if resp.clicked() && !on {
+                pick = Some(c.map(String::from));
+            }
+        }
+    });
+    pick
 }

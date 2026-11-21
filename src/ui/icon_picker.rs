@@ -1,13 +1,18 @@
-//! Choosing an instance icon.
+//! Choosing an instance icon: the built-in icons and your own as tile grids sharing their
+//! hairlines (Prism's pixel art is content), the current one selected, hjkl and Enter.
 
 use std::path::PathBuf;
 
-use egui::{CornerRadius, Rect, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
+use egui::{Rect, Ui, vec2};
 
-use super::widgets as w;
+use super::content::{padded, sheet_foot};
 use super::nav::Nav;
 use super::{App, ToastKind};
+use crate::design::glyphs;
+use crate::design::kit::{self, Button, Tiles};
+use crate::design::tokens::{self as tk, Tokens};
 use crate::icons;
+use crate::keymap::Action;
 use crate::task::Promise;
 
 pub struct IconPicker {
@@ -15,17 +20,23 @@ pub struct IconPicker {
     add_p: Option<Promise<Option<PathBuf>>>,
     /// Keyboard cursor in the grid, as a key.
     cursor: Option<String>,
+    scroll: bool,
 }
 
 impl IconPicker {
     pub fn new(id: String) -> Self {
-        Self { id, add_p: None, cursor: None }
+        Self { id, add_p: None, cursor: None, scroll: false }
     }
+}
+
+/// Columns for a grid `width` wide.
+fn columns(width: f32) -> usize {
+    ((width / tk::ICON_TILE).floor() as usize).max(1)
 }
 
 /// Returns true when the picker should close.
 pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let Some(current) = app.instances.iter().find(|i| i.id == s.id).map(|i| i.icon.clone()) else { return true };
     let mut choose = None;
     let mut remove = None;
@@ -41,16 +52,15 @@ pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
         }
     }
 
-    ui.set_width(560.0);
-    w::heading(ui, &t, "Instance icon");
-    ui.add_space(10.0);
+    ui.spacing_mut().item_spacing.y = 0.0;
+    kit::heading(ui, &t, "Instance icon");
+    ui.add_space(tk::GUTTER);
 
-    let tile = 56.0;
     let builtin: Vec<String> = icons::BUILTIN.iter().map(|(n, _)| n.to_string()).collect();
     let custom = icons::custom();
     let all: Vec<String> = builtin.iter().chain(custom.iter()).cloned().collect();
-    // Keyboard: hjkl over the grid, ⏎ to choose.
-    let cols = ((ui.available_width() + 8.0) / (tile + 8.0)).floor().max(1.0) as isize;
+    // Keyboard: hjkl over the grids as one, Enter to choose.
+    let cols = columns(ui.available_width() - tk::GUTTER * 2.0) as isize;
     let cursor = s.cursor.clone().unwrap_or_else(|| current.clone());
     let at = all.iter().position(|k| *k == cursor).unwrap_or(0) as isize;
     let nav = app.modal_nav();
@@ -65,6 +75,7 @@ pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
     };
     if let Some(i) = moved {
         s.cursor = Some(all[i.clamp(0, all.len() as isize - 1) as usize].clone());
+        s.scroll = true;
     }
     let cursor = s.cursor.clone();
     if let Some(c) = &cursor
@@ -72,66 +83,48 @@ pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
     {
         choose = Some(c.clone());
     }
-    let mut grid = |ui: &mut Ui, keys: &[String], removable: bool| {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-            for key in keys {
-                let (rect, resp) = ui.allocate_exact_size(vec2(tile, tile), Sense::click());
-                let on = *key == current;
-                if on || resp.hovered() {
-                    let fill = t.fg_a(if on { t.menu_selected_bg_alpha } else { t.hover_fill_alpha });
-                    let stroke = if on { Stroke::new(2.0, t.accent) } else { Stroke::NONE };
-                    ui.painter().rect(rect, CornerRadius::ZERO, fill, stroke, StrokeKind::Inside);
-                }
-                let inner = Rect::from_center_size(rect.center(), vec2(tile - 14.0, tile - 14.0));
-                egui::Image::new(icons::source(key)).corner_radius(7.0).paint_at(ui, inner);
-                if cursor.as_ref() == Some(key) {
-                    ui.painter().rect_stroke(rect, CornerRadius::ZERO, Stroke::new(2.0, t.fg_light), StrokeKind::Inside);
-                }
-                let resp = resp.on_hover_text(key.trim_start_matches("custom:")).on_hover_cursor(egui::CursorIcon::PointingHand);
-                if resp.clicked() {
-                    choose = Some(key.clone());
-                }
-                if removable {
-                    resp.context_menu(|ui| {
-                        if ui.button(RichText::new("remove icon").color(t.red)).clicked() {
-                            remove = Some(key.clone());
-                        }
-                    });
-                }
+
+    let foot = tk::LINE + tk::GAP + tk::BUTTON_HEIGHT + tk::GUTTER * 2.0;
+    let scroll = std::mem::take(&mut s.scroll);
+    egui::ScrollArea::vertical().id_salt("icons").max_height((ui.available_height() - foot).max(tk::ICON_TILE * 2.0)).auto_shrink([false, true]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        kit::SectionLabel::new(1, "built in").aside(&builtin.len().to_string()).show(ui, &t);
+        ui.add_space(tk::GAP);
+        if let Some(k) = grid(ui, &t, "builtin", &builtin, &current, cursor.as_deref(), scroll) {
+            choose = Some(k);
+        }
+        ui.add_space(tk::GUTTER);
+        kit::SectionLabel::new(2, "yours").aside(&custom.len().to_string()).show(ui, &t);
+        if custom.is_empty() {
+            padded(ui, |ui| kit::loading(ui, &t, "add an image: png, jpg, svg or webp"));
+        } else {
+            ui.add_space(tk::GAP);
+            if let Some(k) = grid(ui, &t, "custom", &custom, &current, cursor.as_deref(), scroll) {
+                choose = Some(k);
             }
-        });
-    };
+        }
+        ui.add_space(tk::GUTTER);
+    });
 
-    w::section(ui, &t, "built in  ·  hjkl to move, 󰌑 to choose");
-    grid(ui, &builtin, false);
-    if !custom.is_empty() {
-        ui.add_space(8.0);
-        w::section(ui, &t, "yours  ·  right-click to remove");
-        grid(ui, &custom, true);
-    }
-
-    ui.add_space(16.0);
+    ui.add_space(tk::GUTTER);
+    // Remove acts on your own icon under the keyboard's cursor, or the current one.
+    let removable = cursor.clone().or(Some(current.clone())).filter(|k| custom.contains(k));
+    let busy = s.add_p.is_some();
+    let k = |a| app.keymap.label(a);
+    let hints = [("hjkl".to_string(), "move"), (k(Action::Activate), "choose")];
+    let buttons = [Button::new("add image").icon(glyphs::PLUS).enabled(!busy), Button::new("remove").icon(glyphs::TRASH).enabled(removable.is_some()), Button::new("close")];
     let mut close = false;
-    ui.horizontal(|ui| {
-        let busy = s.add_p.is_some();
-        if ui.add_enabled_ui(!busy, |ui| w::button(ui, "add image…")).inner.clicked() {
+    match sheet_foot(ui, &t, &hints, &buttons) {
+        Some(0) => {
             s.add_p = Some(Promise::spawn(&app.rt, ui.ctx(), async {
-                let f = rfd::AsyncFileDialog::new()
-                    .set_title("Choose an icon")
-                    .add_filter("Images", &["png", "jpg", "jpeg", "svg"])
-                    .pick_file()
-                    .await;
+                let f = rfd::AsyncFileDialog::new().set_title("Choose an icon").add_filter("Images", &["png", "jpg", "jpeg", "svg", "webp"]).pick_file().await;
                 Ok(f.map(|f| f.path().to_path_buf()))
             }));
         }
-        if busy {
-            ui.spinner();
-        }
-        if w::button(ui, "close").clicked() {
-            close = true;
-        }
-    });
+        Some(1) => remove = removable,
+        Some(2) => close = true,
+        _ => {}
+    }
 
     if let Some(key) = remove {
         icons::remove_custom(&key);
@@ -139,6 +132,7 @@ pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
             i.icon = icons::DEFAULT.into();
             let _ = i.save();
         }
+        s.cursor = None;
     }
     if let Some(key) = choose
         && let Some(i) = app.instances.iter_mut().find(|i| i.id == s.id)
@@ -150,4 +144,32 @@ pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
         close = true;
     }
     close
+}
+
+/// One grid of icons on the gutter; returns the key clicked.
+fn grid(ui: &mut Ui, t: &Tokens, salt: &str, keys: &[String], current: &str, cursor: Option<&str>, scroll: bool) -> Option<String> {
+    padded(ui, |ui| {
+        let tiles = Tiles {
+            count: keys.len(),
+            columns: columns(ui.available_width()),
+            aspect: 1.0,
+            selected: keys.iter().position(|k| k == current),
+            hot: cursor.and_then(|c| keys.iter().position(|k| k == c)),
+        };
+        let hot = tiles.hot;
+        let out = ui
+            .push_id(salt, |ui| {
+                tiles.show(ui, t, |ui, i, pic| {
+                    // Pixel art at a size that keeps it crisp, centred in its cell.
+                    let side = (pic.width().min(pic.height()) * 0.56).round();
+                    egui::Image::new(icons::source(&keys[i])).paint_at(ui, Rect::from_center_size(pic.center(), vec2(side, side)));
+                    keys[i].trim_start_matches("custom:").to_string()
+                })
+            })
+            .inner;
+        if scroll && let Some(r) = hot.and_then(|h| out.rects.get(h)) {
+            ui.scroll_to_rect(*r, None);
+        }
+        out.clicked.map(|i| keys[i].clone())
+    })
 }

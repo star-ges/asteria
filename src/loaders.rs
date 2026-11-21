@@ -141,7 +141,8 @@ impl Loader {
 #[derive(Debug, Clone)]
 pub struct Build {
     pub version: String,
-    /// Shown beside the version: "stable", "beta", "recommended"…
+    /// Shown beside the version: "stable" (the loader's current stable build), "recommended"
+    /// (Forge's), "beta", or nothing for an older release.
     pub tag: &'static str,
     /// Picked by default (the first preferred build, else the newest).
     pub preferred: bool,
@@ -210,14 +211,7 @@ pub async fn versions_for(kind: LoaderKind, mc: &str) -> anyhow::Result<Vec<Buil
         let url = format!("{base}/versions/loader/{mc}");
         let cache = paths::meta_cache_dir().join(kind.label()).join(format!("{mc}.json"));
         let list: Vec<LoaderEntry> = net::get_json_cached(&url, &cache).await?;
-        return Ok(list
-            .into_iter()
-            .map(|e| {
-                // Quilt marks betas in the version string instead of a flag.
-                let stable = e.loader.stable.unwrap_or(!e.loader.version.contains("beta"));
-                Build { version: e.loader.version, tag: if stable { "stable" } else { "beta" }, preferred: stable }
-            })
-            .collect());
+        return Ok(meta_builds(list));
     }
     let Some(uid) = kind.prism_uid() else {
         return Ok(vec![]);
@@ -243,7 +237,41 @@ pub async fn versions_for(kind: LoaderKind, mc: &str) -> anyhow::Result<Vec<Buil
             };
             Build { version: v.version, tag, preferred: v.recommended || (kind == LoaderKind::NeoForge && !beta) }
         })
-        .collect())
+        .collect::<Vec<_>>())
+    .map(|mut builds| {
+        // NeoForge flags betas only: its newest release is its stable build.
+        if kind == LoaderKind::NeoForge
+            && let Some(b) = builds.iter_mut().find(|b| b.tag.is_empty())
+        {
+            b.tag = "stable";
+        }
+        builds
+    })
+}
+
+/// Fabric's and Quilt's builds, newest first. "Stable" is the build the loader calls its
+/// current stable one: Fabric flags exactly that one (older releases are `stable: false`, not
+/// betas); Quilt flags none, so its newest release. Prereleases say "beta"; older releases
+/// carry no tag.
+fn meta_builds(list: Vec<LoaderEntry>) -> Vec<Build> {
+    let pre = |v: &str| ["beta", "alpha", "pre", "rc"].iter().any(|p| v.contains(p));
+    let flagged = list.iter().any(|e| e.loader.stable == Some(true));
+    let mut stable_seen = false;
+    list.into_iter()
+        .map(|e| {
+            let beta = pre(&e.loader.version);
+            let stable = !stable_seen && if flagged { e.loader.stable == Some(true) } else { !beta };
+            stable_seen |= stable;
+            let tag = if stable {
+                "stable"
+            } else if beta {
+                "beta"
+            } else {
+                ""
+            };
+            Build { version: e.loader.version, tag, preferred: stable }
+        })
+        .collect()
 }
 
 /// A Forge/NeoForge component from Prism's meta, as a child version JSON.
@@ -284,6 +312,17 @@ pub async fn profile(loader: &Loader, mc: &str) -> anyhow::Result<Option<Version
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fabric flags only its current stable build; older releases aren't betas. Quilt flags
+    /// none, so its newest release is the stable one.
+    #[test]
+    fn only_the_current_stable_build_is_called_stable() {
+        let tags = |json: &str| meta_builds(serde_json::from_str(json).unwrap()).into_iter().map(|b| b.tag).collect::<Vec<_>>();
+        let fabric = r#"[{"loader":{"version":"0.20.1","stable":true}},{"loader":{"version":"0.20.0","stable":false}},{"loader":{"version":"0.19.5","stable":false}}]"#;
+        assert_eq!(tags(fabric), ["stable", "", ""]);
+        let quilt = r#"[{"loader":{"version":"0.30.0-beta.2"}},{"loader":{"version":"0.29.2"}},{"loader":{"version":"0.29.1"}}]"#;
+        assert_eq!(tags(quilt), ["beta", "stable", ""]);
+    }
 
     #[test]
     fn jar_mod_era() {

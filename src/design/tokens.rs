@@ -283,8 +283,6 @@ pub const OVERVIEW_TWO_COLUMNS: f32 = 720.0;
 pub const COMPONENT_VERSION_WIDTH: f32 = 140.0;
 /// A sheet's reading column (headings, paragraphs, a table to choose from) at most.
 pub const SHEET_WIDTH: f32 = 760.0;
-/// A sheet with two panes side by side (mod sets: the sets, then a set's mods) at most.
-pub const SHEET_WIDTH_WIDE: f32 = 1080.0;
 /// The mod sets sheet's left pane (the sets).
 pub const SETS_PANE_WIDTH: f32 = 320.0;
 /// The configs tab's file list: its share of the tab's width, within these bounds.
@@ -297,6 +295,8 @@ pub const CONFIG_LIST_FOLD: usize = 6;
 pub const CONTENT_TWO_PANES: f32 = 760.0;
 /// The version columns of the found-updates table.
 pub const UPDATE_VERSION_WIDTH: f32 = 120.0;
+/// The Minecraft versions' share of a version picker (the loader takes the rest).
+pub const VERSION_PANE_SHARE: f32 = 0.55;
 /// The "taken" column of a backups table.
 pub const BACKUP_WHEN_WIDTH: f32 = 200.0;
 /// The "kind" column of a backups table (`AUTO`, `KEPT`).
@@ -321,6 +321,23 @@ pub const CRASH_CONFIDENCE_WIDTH: f32 = 100.0;
 pub const SERVER_FIELD_MIN: f32 = 180.0;
 /// Screenshot tiles: at least this wide (as many columns as fit).
 pub const SHOT_TILE_MIN: f32 = 240.0;
+/// A cell of the icon picker's grids.
+pub const ICON_TILE: f32 = 120.0;
+/// A colour choice in the groups manager (a small mark of the hue, inset in its frame).
+pub const SWATCH_SIZE: f32 = 24.0;
+/// The accounts list's share of the accounts page (the skin takes the rest).
+pub const ACCOUNTS_SHARE: f32 = 0.56;
+/// The accounts list's full rows (Melodrama names, a description beside them) from this width;
+/// narrower, compact rows.
+pub const ACCOUNTS_FULL_ROWS_MIN: f32 = 640.0;
+/// Room kept under the accounts list for adding one: the sign-in button and the offline name,
+/// or (while signing in) the code shown large.
+pub const ACCOUNTS_ADD_HEIGHT: f32 = 230.0;
+pub const ACCOUNTS_ADD_HEIGHT_CODE: f32 = 360.0;
+/// Width the sign-in code needs to be set at its full size.
+pub const ACCOUNTS_CODE_ROOM: f32 = 560.0;
+/// The skin preview's width at most (its height is 1.25 times it).
+pub const SKIN_VIEW_WIDTH: f32 = 320.0;
 /// Leftward shift of the hot title.
 pub const HOVER_SHIFT: f32 = 32.0;
 pub const HOVER_SHIFT_COMPACT: f32 = 20.0;

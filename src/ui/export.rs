@@ -1,15 +1,19 @@
-//! Export an instance as an instance zip or a Modrinth pack, choosing which
-//! parts of the game folder go in.
+//! Export an instance as an instance zip or a Modrinth pack, choosing which parts of the
+//! game folder go in: the format and its explanation as a settings group, then the folder's
+//! entries as a checklist with their sizes.
 
 use std::path::PathBuf;
 
-use egui::{RichText, Ui};
+use egui::Ui;
 
+use super::content::{padded, sheet_foot};
 use super::nav::Nav;
-use super::widgets as w;
 use super::{App, ToastKind};
+use crate::design::kit::{self, Button, QuietRow, SettingRow};
+use crate::design::tokens as tk;
 use crate::export::{Entry, Format, Request};
 use crate::instance::Instance;
+use crate::keymap::Action;
 use crate::task::Promise;
 
 pub struct ExportDialog {
@@ -32,15 +36,16 @@ impl ExportDialog {
 
 /// Returns the export to start, or `Err(())` to close without one.
 pub fn show(app: &mut App, s: &mut ExportDialog, ui: &mut Ui) -> Option<Result<Request, ()>> {
-    let t = app.t.clone();
-    let screen = ui.ctx().content_rect();
-    ui.set_width((screen.width() - 120.0).clamp(480.0, 760.0));
-    ui.set_height((screen.height() - 120.0).clamp(300.0, 520.0));
-
+    let t = app.look.tokens.clone();
     if let Some(r) = s.entries_p.as_ref().and_then(|p| p.take()) {
         s.entries_p = None;
         match r {
-            Ok(list) => s.entries = Some(list.into_iter().map(|e| { let on = e.default; (e, on) }).collect()),
+            Ok(list) => {
+                s.entries = Some(list.into_iter().map(|e| {
+                    let on = e.default;
+                    (e, on)
+                }).collect())
+            }
             Err(e) => app.toast(ToastKind::Error, format!("Couldn't read the instance: {e:#}")),
         }
     }
@@ -60,103 +65,87 @@ pub fn show(app: &mut App, s: &mut ExportDialog, ui: &mut Ui) -> Option<Result<R
         }
     }
 
-    ui.horizontal(|ui| {
-        w::heading(ui, &t, "Export instance");
-        ui.add_space(16.0);
-        w::segmented(ui, &t, &mut s.format, &[(Format::Mrpack, "modrinth pack"), (Format::Zip, "instance zip")]);
-    });
-    ui.add_space(10.0);
-
+    ui.set_max_width(ui.available_width().min(tk::SHEET_WIDTH));
+    ui.spacing_mut().item_spacing.y = 0.0;
+    kit::heading(ui, &t, "Export instance");
+    ui.add_space(tk::GUTTER);
     let nav = app.modal_nav();
     let key = |n: Nav| nav == Some(n);
     let busy = s.save_p.is_some();
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        w::section(ui, &t, "include");
-        match &mut s.entries {
-            None => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(RichText::new("measuring…").color(t.muted));
-                });
-            }
-            Some(list) if list.is_empty() => {
-                ui.label(RichText::new("the game folder is empty").color(t.muted));
-            }
-            Some(list) => {
-                let moved = nav.filter(|n| n.is_move());
-                if let Some(n) = moved {
-                    s.cursor = n.step(list.len(), Some(s.cursor)).unwrap_or(0);
-                }
-                s.cursor = s.cursor.min(list.len() - 1);
-                if key(Nav::Toggle) {
-                    list[s.cursor].1 ^= true;
-                }
-                egui::ScrollArea::vertical().id_salt("export-entries").max_height(ui.available_height() - 4.0).auto_shrink(false).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 1.0;
-                    for (i, (e, on)) in list.iter_mut().enumerate() {
-                        let glyph = if *on { "\u{f0132}" } else { "\u{f0131}" };
-                        let name = if e.is_dir { format!("{}/", e.name) } else { e.name.clone() };
-                        let r = w::menu_row(ui, &t, i == s.cursor, glyph, &name, &w::size_label(e.size));
-                        if i == s.cursor {
-                            w::focus_mark(ui, &t, r.rect);
-                            if moved.is_some() {
-                                r.scroll_to_me(None);
-                            }
-                        }
-                        if r.clicked() {
-                            *on ^= true;
-                            s.cursor = i;
-                        }
-                    }
-                });
-            }
-        }
 
-        let ui = &mut cols[1];
-        match s.format {
-            Format::Mrpack => {
-                w::section(ui, &t, "pack version");
-                w::text_input(ui, &mut s.version, "1.0.0", ui.available_width(), false);
-                ui.add_space(6.0);
-                w::para(
-                    ui,
-                    RichText::new("Mods and packs that Modrinth hosts are listed as downloads; everything else is bundled in the pack. Opens in Asteria, Prism and the Modrinth App.")
-                        .color(t.muted),
-                );
-            }
-            Format::Zip => {
-                ui.add_space(6.0);
-                w::para(
-                    ui,
-                    RichText::new("A full copy of the chosen files, with the instance's settings and icon. Opens in Asteria, Prism, PolyMC and MultiMC, and works offline.")
-                        .color(t.muted),
-                );
-            }
+    let explain = match s.format {
+        Format::Mrpack => "Mods and packs that Modrinth hosts are listed as downloads; everything else is bundled in the pack. Opens in Asteria, Prism and the Modrinth App.",
+        Format::Zip => "A full copy of the chosen files, with the instance's settings and icon. Opens in Asteria, Prism, PolyMC and MultiMC, and works offline.",
+    };
+    kit::setting_group(ui, &t, 1, "Format", "", |ui| {
+        SettingRow::new("Format").description(explain).show(ui, &t, |ui| {
+            kit::segmented(ui, &t, &mut s.format, &[(Format::Zip, "instance zip"), (Format::Mrpack, "modrinth pack")]);
+        });
+        if s.format == Format::Mrpack {
+            SettingRow::new("Pack version").caption("shown by launchers that import it").show(ui, &t, |ui| {
+                let w = ui.available_width().min(tk::SETTING_CONTROL_WIDTH);
+                kit::Field::new(&mut s.version).hint("1.0.0").width(w).show(ui, &t);
+            });
         }
-        if let Some(list) = &s.entries {
+    });
+
+    // What goes in: the game folder's entries, ticked by default as the format suggests.
+    let aside = match &s.entries {
+        Some(list) => {
             let (n, size) = list.iter().filter(|(_, on)| *on).fold((0, 0), |(n, b), (e, _)| (n + 1, b + e.size));
-            ui.add_space(8.0);
-            ui.label(RichText::new(format!("{n} of {} items  ·  {} before compression", list.len(), w::size_label(size))).color(t.muted));
+            format!("{n} of {} · {} before compression", list.len(), kit::text::size_label(size))
         }
-
-        ui.with_layout(egui::Layout::bottom_up(egui::Align::Max), |ui| {
-            ui.horizontal(|ui| {
-                let ready = s.entries.is_some() && !busy;
-                let go = ui.add_enabled_ui(ready, |ui| w::primary_button(ui, &t, "export…")).inner.clicked()
-                    || (ready && (key(Nav::Activate) || ui.input(|i| i.key_pressed(egui::Key::Enter))));
-                if w::button(ui, "cancel").clicked() {
-                    out = Some(Err(()));
-                }
-                if busy {
-                    ui.spinner();
-                }
-                if go {
-                    s.save_p = Some(save_as(app, ui.ctx(), &s.inst.name, s.format));
+        None => "measuring".into(),
+    };
+    kit::SectionLabel::new(2, "include").aside(&aside).show(ui, &t);
+    let foot = tk::LINE + tk::GAP + tk::BUTTON_HEIGHT + tk::GUTTER * 2.0;
+    match &mut s.entries {
+        None => padded(ui, |ui| {
+            kit::loading(ui, &t, "measuring the game folder");
+        }),
+        Some(list) if list.is_empty() => padded(ui, |ui| {
+            kit::loading(ui, &t, "the game folder is empty");
+        }),
+        Some(list) => {
+            let moved = nav.filter(|n| n.is_move());
+            if let Some(n) = moved {
+                s.cursor = n.step(list.len(), Some(s.cursor)).unwrap_or(0);
+            }
+            s.cursor = s.cursor.min(list.len() - 1);
+            if key(Nav::Toggle) {
+                list[s.cursor].1 ^= true;
+            }
+            egui::ScrollArea::vertical().id_salt("export-entries").max_height((ui.available_height() - foot).max(tk::TABLE_ROW_HEIGHT * 3.0)).auto_shrink([false, true]).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for (i, (e, on)) in list.iter_mut().enumerate() {
+                    let name = if e.is_dir { format!("{}/", e.name) } else { e.name.clone() };
+                    let size = kit::text::size_label(e.size);
+                    let cur = i == s.cursor;
+                    let (r, _) = QuietRow::new(("export-entry", &e.name), &name).check(*on).aside(&size, None).hot(cur).selected(cur).show(ui, &t, |_| ());
+                    if cur && moved.is_some() {
+                        r.scroll_to_me(None);
+                    }
+                    if r.clicked() {
+                        *on ^= true;
+                        s.cursor = i;
+                    }
                 }
             });
-        });
-    });
+        }
+    }
+
+    ui.add_space(tk::GUTTER);
+    let ready = s.entries.is_some() && !busy;
+    let k = |a| app.keymap.label(a);
+    let hints = [(k(Action::Toggle), "include"), (k(Action::Activate), "export")];
+    let clicked = sheet_foot(ui, &t, &hints, &[Button::new("export").icon(crate::design::glyphs::UPLOAD).filled().enabled(ready), Button::new("cancel")]);
+    if clicked == Some(1) {
+        out = Some(Err(()));
+    }
+    let go = clicked == Some(0) || (ready && (key(Nav::Activate) || ui.input(|i| i.key_pressed(egui::Key::Enter))));
+    if go {
+        s.save_p = Some(save_as(app, ui.ctx(), &s.inst.name, s.format));
+    }
     out
 }
 

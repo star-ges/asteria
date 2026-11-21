@@ -4,10 +4,11 @@
 //! quad per texel keeps the pixels crisp, lets transparent texels of the
 //! outer layer simply drop out, and sorts far better than whole faces would.
 
-use egui::{Color32, Mesh, Painter, Pos2, Rect, Sense, Ui, vec2};
+use egui::{Color32, Mesh, Painter, Pos2, Rect, Sense, Ui};
 use image::RgbaImage;
 
-use crate::design::Theme;
+use crate::design::kit;
+use crate::design::tokens::{self as tk, Tokens};
 
 type V3 = [f32; 3];
 
@@ -222,7 +223,9 @@ const START: (f32, f32) = (-0.5, 0.18);
 
 /// The preview widget: drag to turn it, double-click to reset. `turn` is
 /// (yaw, pitch) away from the starting view.
-pub fn show(ui: &mut Ui, t: &Theme, model: Option<&Model>, turn: &mut (f32, f32), size: egui::Vec2) -> egui::Response {
+/// The model, turning with a drag, framed by hairlines on the background (no well). Before
+/// the model is ready, a muted caption in its place.
+pub fn show(ui: &mut Ui, t: &Tokens, model: Option<&Model>, turn: &mut (f32, f32), size: egui::Vec2) -> egui::Response {
     let (rect, r) = ui.allocate_exact_size(size, Sense::click_and_drag());
     if r.dragged() {
         let d = r.drag_delta();
@@ -233,14 +236,15 @@ pub fn show(ui: &mut Ui, t: &Theme, model: Option<&Model>, turn: &mut (f32, f32)
         *turn = (0.0, 0.0);
     }
     let p = ui.painter();
-    p.rect_filled(rect, 0.0, t.fg_a(0.03));
-    p.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, t.fg_a(0.12)), egui::StrokeKind::Inside);
+    let frame = crate::design::motion::color(ui.ctx(), r.id.with("frame"), r.hovered() || r.dragged(), t.line_strong, t.accent);
+    kit::rule::frame(p, rect, frame);
     match model {
-        Some(m) => m.paint(p, rect.shrink(12.0), START.0 + turn.0, START.1 + turn.1),
+        Some(m) => m.paint(p, rect.shrink(tk::GUTTER), START.0 + turn.0, START.1 + turn.1),
         None => {
-            ui.put(Rect::from_center_size(rect.center(), vec2(24.0, 24.0)), egui::Spinner::new());
+            kit::text::paint_caption(p, egui::pos2(rect.left() + tk::GAP, rect.top() + tk::GAP + tk::SIZE_CAPTION / 2.0), "loading skin", t.text_muted);
         }
     }
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "skin preview; drag to turn"));
     r.on_hover_cursor(egui::CursorIcon::Grab)
 }
 

@@ -232,7 +232,7 @@ fn import_icon(key: &str, search: &[PathBuf]) -> String {
         return icons::canonical(base).to_string();
     }
     for dir in search {
-        for ext in ["png", "svg", "jpg", "jpeg"] {
+        for ext in ["png", "svg", "jpg", "jpeg", "webp"] {
             let p = dir.join(format!("{key}.{ext}"));
             if p.is_file()
                 && let Ok(k) = icons::add_custom(&p)
@@ -558,7 +558,7 @@ async fn import_prism_zip(task: &Task, zip_path: PathBuf, prefix: String) -> any
     if let Some(key) = p.icon_key() {
         let tmp = paths::data_dir().join("cache").join(format!("icon-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp)?;
-        for ext in ["png", "svg", "jpg", "jpeg"] {
+        for ext in ["png", "svg", "jpg", "jpeg", "webp"] {
             if let Ok(e) = zip.by_name(&format!("{prefix}{key}.{ext}")) {
                 let bytes = fsutil::read_capped(e).with_context(|| format!("reading icon {key}.{ext}"))?;
                 std::fs::write(tmp.join(format!("{key}.{ext}")), bytes)?;
@@ -587,7 +587,8 @@ async fn import_mrpack(task: &Task, zip_path: PathBuf) -> anyhow::Result<(Instan
     let index: MrIndex = serde_json::from_str(&zip_text(&mut zip, "modrinth.index.json")?).context("reading modrinth.index.json")?;
     let mc = index.dependencies.get("minecraft").context("pack doesn't say which Minecraft version it needs")?;
     let mut inst = Instance::new(&index.name, mc, mrpack_loader(&index.dependencies));
-    inst.icon = "modrinth".into();
+    // The pack's own icon, if Modrinth knows the pack; else Modrinth's mark.
+    inst.icon = modrinth_icon(&zip_path).await.unwrap_or_else(|| "modrinth".into());
     inst.notes = index.summary.clone().unwrap_or_default();
     let mut downloads = mrpack_downloads(&index)?;
     let task = task.clone();
@@ -608,6 +609,51 @@ async fn import_mrpack(task: &Task, zip_path: PathBuf) -> anyhow::Result<(Instan
         .await?
     })
     .await
+}
+
+/// The icon of the Modrinth project this `.mrpack` was published in, found by the file's
+/// SHA-1 (so packs from the import window, from a link, or downloaded by hand all get it),
+/// saved as a custom icon. Best effort and bounded in time: no icon never fails an import.
+async fn modrinth_icon(zip_path: &Path) -> Option<String> {
+    #[derive(Deserialize)]
+    struct VersionRef {
+        project_id: String,
+    }
+    #[derive(Deserialize)]
+    struct Project {
+        slug: String,
+        icon_url: Option<String>,
+    }
+    let lookup = async {
+        let path = zip_path.to_path_buf();
+        let sha1 = tokio::task::spawn_blocking(move || net::sha1_file(&path)).await.ok()??;
+        let v: VersionRef = net::get_json(&format!("https://api.modrinth.com/v2/version_file/{sha1}?algorithm=sha1")).await.ok()?;
+        let p: Project = net::get_json(&format!("https://api.modrinth.com/v2/project/{}", v.project_id)).await.ok()?;
+        let url = p.icon_url?;
+        let resp = net::client().get(&url).send().await.ok()?.error_for_status().ok()?;
+        let bytes = resp.bytes().await.ok()?;
+        if bytes.len() as u64 > fsutil::METADATA_LIMIT {
+            return None;
+        }
+        let ext = icon_ext(&url, &bytes)?;
+        icons::add_bytes(&p.slug, ext, &bytes).ok()
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), lookup).await.ok().flatten()
+}
+
+/// An icon's file type: by its bytes where they say, else by the URL's extension.
+fn icon_ext(url: &str, bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG") {
+        return Some("png");
+    }
+    if bytes.starts_with(&[0xFF, 0xD8]) {
+        return Some("jpg");
+    }
+    if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("webp");
+    }
+    let path = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
+    path.ends_with(".svg").then_some("svg")
 }
 
 #[cfg(test)]
@@ -637,6 +683,14 @@ mod tests {
         assert_eq!(PrismInstance::parse("name=F\n", Some(forge)).unwrap().to_instance().unwrap().loader, Loader::Forge("47.2.0".into()));
         let lite = r#"{"components":[{"uid":"net.minecraft","version":"1.12.2"},{"uid":"com.mumfrey.liteloader","version":"1.12.2"}]}"#;
         assert!(PrismInstance::parse("name=L\n", Some(lite)).unwrap().to_instance().is_err());
+    }
+
+    #[test]
+    fn icon_types_come_from_their_bytes() {
+        assert_eq!(icon_ext("https://cdn.modrinth.com/a/icon.png", b"RIFF\0\0\0\0WEBPVP8 "), Some("webp"));
+        assert_eq!(icon_ext("https://cdn.modrinth.com/a/icon", b"\x89PNG\r\n"), Some("png"));
+        assert_eq!(icon_ext("https://cdn.modrinth.com/a/icon.svg?x=1", b"<svg"), Some("svg"));
+        assert_eq!(icon_ext("https://cdn.modrinth.com/a/icon.gif", b"GIF89a"), None);
     }
 
     #[test]
@@ -739,6 +793,21 @@ mod tests {
         assert!(d.url.ends_with(".mrpack"), "{}", d.url);
         let err = resolve_pack("https://modrinth.com/modpack/fabulously-optimized/version/0.0.0-nope", p).await.unwrap_err();
         assert!(err.to_string().contains("no version 0.0.0-nope"), "{err}");
+    }
+
+    /// A pack Modrinth hosts gets its project's icon, found by the file's hash.
+    #[tokio::test]
+    #[ignore = "network"]
+    async fn modrinth_packs_bring_their_icon() {
+        let d = scratch();
+        let path = d.join("fo.mrpack");
+        net::download(&resolve_pack("https://modrinth.com/modpack/fabulously-optimized/version/1.12.1", path.clone()).await.unwrap()).await.unwrap();
+        let key = modrinth_icon(&path).await.expect("an icon");
+        let file = key.strip_prefix("custom:").unwrap();
+        assert!(file.starts_with("fabulously-optimized."), "{key}");
+        assert!(icons::dir().join(file).metadata().unwrap().len() > 0);
+        icons::remove_custom(&key);
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     const SHA1: &str = "bd8cffe21cd22dbe9ea0e4555d163178cba6c19e";

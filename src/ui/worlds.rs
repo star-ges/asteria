@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use egui::{Ui, vec2};
 
 use super::content::{self, padded};
-use super::widgets as w;
 use super::nav::{Nav, Zone};
 use super::{App, Confirm, ConfirmAction, Modal, ToastKind};
 use crate::design::kit;
@@ -493,7 +492,7 @@ fn world_pane(ui: &mut Ui, app: &mut App, inst: &Instance, w: &Pane, kb: Option<
             if let Some(v) = &wd.version {
                 desc.push(v.clone());
             }
-            desc.push(format!("played {}", w::ago(wd.last_played)));
+            desc.push(format!("played {}", kit::text::ago(wd.last_played)));
             if wd.folder != wd.name {
                 desc.push(wd.folder.clone());
             }

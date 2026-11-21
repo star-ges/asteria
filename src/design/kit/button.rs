@@ -22,11 +22,13 @@ pub struct Button<'a> {
     /// Keyboard-current, from the pane's `Nav` (the same response as hover).
     hot: bool,
     min_width: f32,
+    /// The label keeps its case (a key).
+    key: bool,
 }
 
 impl<'a> Button<'a> {
     pub fn new(label: &'a str) -> Self {
-        Self { label, icon: None, filled: false, danger: false, checked: false, enabled: true, hot: false, min_width: 0.0 }
+        Self { label, icon: None, filled: false, danger: false, checked: false, enabled: true, hot: false, min_width: 0.0, key: false }
     }
 
     /// An icon before the label, or alone in a square button with an empty label (then it's
@@ -62,13 +64,23 @@ impl<'a> Button<'a> {
         self
     }
 
+    /// The label is a key and keeps its case: `e` and `E` are different keys.
+    pub fn key(mut self) -> Self {
+        self.key = true;
+        self
+    }
+
+    fn label_galley(&self, ui: &Ui, color: egui::Color32) -> std::sync::Arc<egui::Galley> {
+        if self.key { ui.painter().layout_job(text::key_job(self.label, color)) } else { text::caption_galley(ui, self.label, color) }
+    }
+
     pub fn min_width(mut self, w: f32) -> Self {
         self.min_width = w;
         self
     }
 
     fn content_width(&self, ui: &Ui, t: &Tokens) -> f32 {
-        let label = if self.label.is_empty() { 0.0 } else { text::caption_galley(ui, self.label, t.text_strong).size().x };
+        let label = if self.label.is_empty() { 0.0 } else { self.label_galley(ui, t.text_strong).size().x };
         let icon = if self.icon.is_some() { tk::ICON_SIZE_SMALL + if self.label.is_empty() { 0.0 } else { tk::ICON_GAP } } else { 0.0 };
         label + icon
     }
@@ -128,7 +140,8 @@ impl<'a> Button<'a> {
             x += tk::ICON_SIZE_SMALL + tk::ICON_GAP;
         }
         if !icon_only {
-            text::paint_caption(p, egui::pos2(x, rect.center().y), self.label, ink);
+            let g = self.label_galley(ui, ink);
+            p.galley(egui::pos2(x, rect.center().y - g.size().y / 2.0), g, ink);
         }
         if self.enabled {
             resp.clone().on_hover_cursor(CursorIcon::PointingHand);
@@ -183,4 +196,23 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, t: &Tokens, value: &mut T, op
         }
         _ => false,
     }
+}
+
+/// A choice from more options than a joined row holds: an outlined button with the current
+/// choice and a caret, opening a menu of the options (Switzer, the current one marked). Never
+/// changes anything by being drawn; returns the option picked, if it's another.
+pub fn menu(ui: &mut Ui, t: &Tokens, id: egui::Id, current: Option<usize>, label: &str, options: &[&str], min_width: f32, hot: bool) -> Option<usize> {
+    let resp = Button::new(label).icon(crate::design::glyphs::CARET_DOWN).min_width(min_width).hot(hot).enabled(!options.is_empty()).show(ui, t);
+    let mut pick = None;
+    egui::Popup::menu(&resp).id(id.with("menu")).width(resp.rect.width().max(min_width)).show(|ui| {
+        ui.style_mut().override_font_id = Some(fonts::text(tk::SIZE_BODY));
+        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+            for (i, o) in options.iter().enumerate() {
+                if ui.selectable_label(current == Some(i), *o).clicked() && current != Some(i) {
+                    pick = Some(i);
+                }
+            }
+        });
+    });
+    pick
 }

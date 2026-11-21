@@ -18,8 +18,13 @@ pub fn caps(text: &str) -> String {
 
 /// A caption as a layout job: Switzer SemiBold 11, uppercase, tracked.
 pub fn caption_job(text: &str, color: Color32) -> LayoutJob {
+    key_job(&caps(text), color)
+}
+
+/// A caption in its own case (a key: `e` and `E` are different keys), tracked.
+pub fn key_job(text: &str, color: Color32) -> LayoutJob {
     let mut job = LayoutJob::default();
-    job.append(&caps(text), 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), color, extra_letter_spacing: tk::CAPTION_TRACKING, ..Default::default() });
+    job.append(text, 0.0, TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), color, extra_letter_spacing: tk::CAPTION_TRACKING, ..Default::default() });
     job
 }
 
@@ -40,13 +45,15 @@ fn label(ui: &mut Ui, job: LayoutJob) -> Response {
     ui.add(egui::Label::new(job).selectable(false))
 }
 
-/// A muted caption.
+/// A muted caption. Like every caption laid out by itself, it wraps at the room it has
+/// (a single-line label would widen its scroll area or pane instead).
 pub fn caption(ui: &mut Ui, t: &Tokens, text: &str) -> Response {
-    label(ui, caption_job(text, t.text_muted))
+    caption_colored(ui, text, t.text_muted)
 }
 
 pub fn caption_colored(ui: &mut Ui, text: &str, color: Color32) -> Response {
-    label(ui, caption_job(text, color))
+    // The label's own wrap mode wins over the job's, so it's asked of the label.
+    ui.add(egui::Label::new(caption_job(text, color)).selectable(false).wrap())
 }
 
 /// Page and sheet titles: Switzer ExtraBold 28.
@@ -182,4 +189,27 @@ pub fn number(n: usize) -> String {
 /// The first line's baseline, from the galley's top.
 pub fn baseline(g: &Galley) -> f32 {
     g.rows.first().map_or(g.size().y, |r| r.pos.y + r.row.glyphs.first().map_or(r.row.size.y, |gl| gl.pos.y))
+}
+
+/// A size in bytes, as people read it: `46.6 GB`, `812 kB`.
+pub fn size_label(n: u64) -> String {
+    let n = n as f64;
+    match n {
+        n if n >= 1e9 => format!("{:.1} GB", n / 1e9),
+        n if n >= 1e6 => format!("{:.1} MB", n / 1e6),
+        n if n >= 1e3 => format!("{:.0} kB", n / 1e3),
+        n => format!("{n} B"),
+    }
+}
+
+/// How long ago, in one short word: `just now`, `12m ago`, `3d ago`, `never`.
+pub fn ago(when: Option<chrono::DateTime<chrono::Utc>>) -> String {
+    let Some(w) = when else { return "never".into() };
+    let s = (chrono::Utc::now() - w).num_seconds().max(0);
+    match s {
+        0..=59 => "just now".into(),
+        60..=3599 => format!("{}m ago", s / 60),
+        3600..=86399 => format!("{}h ago", s / 3600),
+        _ => format!("{}d ago", s / 86400),
+    }
 }

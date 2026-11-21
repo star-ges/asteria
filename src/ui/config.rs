@@ -1291,7 +1291,7 @@ fn editor(ui: &mut Ui, t: &Tokens, o: &mut Open, st: EditorState, running: bool,
                 let (r, inner) = group.show(ui, t, |ui| {
                     if let Some(d) = (!sec.is_empty()).then(|| doc.section_doc(sec)).flatten() {
                         egui::Frame::new().inner_margin(egui::Margin { left: tk::SETTING_INDENT as i8, right: tk::GUTTER as i8, top: 0, bottom: tk::GAP as i8 }).show(ui, |ui| {
-                            ui.set_max_width(tk::SETTING_DESCRIPTION_WIDTH);
+                            ui.set_max_width(ui.available_width().min(tk::SETTING_DESCRIPTION_WIDTH));
                             kit::body_muted(ui, t, d);
                         });
                     }
@@ -1544,7 +1544,7 @@ fn value_part(ui: &mut Ui, t: &Tokens, f: &Field, r: &Row, kb: Option<Nav>, focu
 
 /// A number with no range to slide over: typed or dragged, in a 1px frame like the kit's fields.
 /// It never changes the value by being drawn (`clamp_existing_to_range(false)`).
-fn number<N: egui::emath::Numeric>(ui: &mut Ui, t: &Tokens, x: &mut N, range: std::ops::RangeInclusive<N>, speed: f64, hot: bool, width: f32) -> egui::Response {
+pub(super) fn number<N: egui::emath::Numeric>(ui: &mut Ui, t: &Tokens, x: &mut N, range: std::ops::RangeInclusive<N>, speed: f64, hot: bool, width: f32) -> egui::Response {
     ui.scope(|ui| {
         let style = ui.style_mut();
         style.override_font_id = Some(fonts::text(tk::SIZE_BODY));
@@ -2025,7 +2025,7 @@ pub fn leave_dialog(app: &mut App, s: &Leave, ui: &mut Ui) -> bool {
     let nav = app.modal_nav();
     let Some(o) = &app.config.open else { return true };
     let name = o.rel.display().to_string();
-    ui.set_max_width(tk::SHEET_WIDTH);
+    ui.set_max_width(ui.available_width().min(tk::SHEET_WIDTH));
     kit::heading(ui, &t, "Unsaved changes");
     ui.add_space(tk::UNIT);
     kit::body(ui, &t, &format!("{name} has changes that aren't saved yet."));

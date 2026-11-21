@@ -71,7 +71,7 @@ pub fn custom() -> Vec<String> {
 fn is_image(p: &Path) -> bool {
     matches!(
         p.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(),
-        Some("png" | "jpg" | "jpeg" | "svg")
+        Some("png" | "jpg" | "jpeg" | "svg" | "webp")
     )
 }
 
@@ -80,19 +80,27 @@ pub fn add_custom(path: &Path) -> anyhow::Result<String> {
     if !is_image(path) {
         bail!("icons must be PNG, JPEG or SVG");
     }
-    std::fs::create_dir_all(dir())?;
-    let stem: String = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect())
-        .unwrap_or_else(|| "icon".into());
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let ext = path.extension().unwrap().to_string_lossy().to_ascii_lowercase();
+    add_bytes(&stem, &ext, &std::fs::read(path)?)
+}
+
+/// Save image bytes (a PNG, JPEG, SVG or WebP, by `ext`) as an icon named after `stem`, never
+/// over another; returns its key.
+pub fn add_bytes(stem: &str, ext: &str, bytes: &[u8]) -> anyhow::Result<String> {
+    if !is_image(Path::new(&format!("icon.{ext}"))) {
+        bail!("icons must be PNG, JPEG, SVG or WebP");
+    }
+    std::fs::create_dir_all(dir())?;
+    let stem: String = stem.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+    let stem = if stem.is_empty() { "icon".to_string() } else { stem };
     let mut name = format!("{stem}.{ext}");
     let mut n = 2;
     while dir().join(&name).exists() {
         name = format!("{stem}-{n}.{ext}");
         n += 1;
     }
-    std::fs::copy(path, dir().join(&name))?;
+    crate::fsutil::write_atomic(&dir().join(&name), bytes, 0o644)?;
     Ok(format!("custom:{name}"))
 }
 

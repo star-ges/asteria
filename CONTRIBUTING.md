@@ -25,17 +25,17 @@ surrounding style. Keep the build free of warnings.
 
 ## Style
 
-- **Look:** square corners, monospace text, lowercase labels, no shadows. Colours come only from
-  the `Theme` tokens, never hard-coded.
+- **Look:** the StarShell language (see `AGENTS.md`): square corners, hairlines, no shadows, one
+  accent for state. Colours and sizes come only from `design::tokens`; screens draw with `design::kit`.
 - **Keys:** every action is declared in `keymap.rs`, so it can be rebound. Never hard-code a key;
   panes act on a `Nav` from `app.nav_for(zone)`, the same way their buttons do.
 - **Background work:** anything slow runs on a `Promise` (with a `Task` for progress), never in a
   frame. Nothing a pane draws runs subprocesses or reads files in bulk.
-- **Text:** it clips by default. Wrap paragraphs with `w::para`, truncate long single lines, and lay
+- **Text:** it clips by default. Wrap paragraphs with `kit::body`, truncate long single lines, and lay
   buttons out before the text beside them.
 - **Destructive actions:** go through a confirmation (`Modal::Confirm`).
 - **Saving:** write config and state files with `fsutil::write_atomic`.
-- **Icons in UI text:** Nerd Font glyphs, written as `\u{…}` escapes.
+- **Icons in UI text:** Phosphor, by name from `design::glyphs`.
 
 ## Behaviour rules
 

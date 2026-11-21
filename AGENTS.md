@@ -42,10 +42,10 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 | `main.rs`, `cli.rs` | tokio runtime; the CLI if there are args, otherwise eframe (decorated: Hyprland draws no title bar, other desktops do) |
 | `paths.rs`, `config.rs` | `~/.local/share/asteria`, `~/.config/asteria/config.toml` (incl. `[keys]`, `collapsed_groups`, `msa_client_id`) |
 | `design/tokens.rs` | Every colour, size, spacing and duration as a named token (StarShell's values): `LIGHT`/`DARK` palettes plus the clarity hues and StarShell's code palette (`code_*`, the config text mode only: light has its own clearer set, dark is the terminal's earth tones), `Tokens` (the crossfaded palette in use) |
-| `design/system.rs` | `Look`: follows the XDG portal (`color-scheme`, GNOME's `enable-animations` for reduced motion; D-Bus, watched; winit reports no theme on Wayland) and fontconfig; crossfades light ⇄ dark over 600ms and keeps the old screens' `Theme` in step |
-| `design/fonts.rs`, `design/glyphs.rs`, `design/motion.rs` | Switzer/Melodrama via fontconfig (else `sans-serif`, `FontSet::missing`), bundled Phosphor and JetBrains Mono, the old screens' monospace + Nerd Font; Phosphor names → codepoints; ease-out curves and eased animations that repaint only while moving |
+| `design/system.rs` | `Look`: follows the XDG portal (`color-scheme`, GNOME's `enable-animations` for reduced motion; D-Bus, watched; winit reports no theme on Wayland) and fontconfig; crossfades light ⇄ dark over 600ms, re-dressing egui's stock widgets (`design/style.rs`) as it goes |
+| `design/fonts.rs`, `design/glyphs.rs`, `design/motion.rs` | Switzer/Melodrama via fontconfig (else `sans-serif`, `FontSet::missing`), bundled Phosphor and JetBrains Mono (egui's `Proportional`/`Monospace` are the text face and JetBrains Mono); Phosphor names → codepoints; ease-out curves and eased animations that repaint only while moving |
 | `design/kit/*` | The new widget kit (Phase 2): text and icons, rules and section labels, buttons, switch and checkbox, fields, slider and meter, setting groups (foldable heads) and rows (a facts line with a link; rows grow to their control), quiet table, tiles, bars, sheet/strip/notice/banner and the small blocks (spec strip, bracketed paragraph, empty and loading), `HoverList` with its stars (`row_trail` keeps room for a row's own controls: the mods' switches, Modrinth's install), `QuietRow` (checklists, rows with a control at the right) |
-| `design/legacy.rs` | The old screens' `Theme`, made from the tokens' palette; goes with the last old screen |
+| `design/style.rs` | egui's own `Style`/`Visuals` from the tokens, so stock widgets (scroll bars, text edits, context menus, tooltips, drag values) match the kit |
 | `ui/kit_gallery.rs` | The hidden kit gallery (`ASTERIA_DEBUG_VIEW=kit`): every kit part and the plan's new patterns, light, dark or both |
 | `migrate.rs` | First start: moves Asteria's data and config dirs to Asteria's and links the old names back |
 | `mojang.rs`, `loaders.rs`, `java.rs`, `launch.rs` | Version JSON + rules, loader profiles (Fabric/Quilt meta; Forge/NeoForge from Prism's meta: launchwrapper `+tweakers` for 1.6–1.12, ForgeWrapper + `mavenFiles` for 1.13+), Mojang Java runtimes, prepare + spawn (incl. QuickPlay) |
@@ -69,30 +69,32 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 | `mod_sets.rs`, `bisect.rs`, `ui/mod_sets.rs` | Mod sets (`mod_sets.toml`: named on/off arrangements keyed by jar mod id, else versionless file name); the search for the breaking mod (`bisect.toml`: dependency-closed halving, a confirming step, exact restore); the mods tab's set line, sets dialog, search dialogs and banner |
 | `crash.rs` | Crash analysis: suspects from crash reports and logs (loader errors, unmet dependencies, mixins, entrypoints, Suspected Mods, stack frames matched to jars by package), non-mod causes; jar facts cached by path/size/mtime |
 | `ui/{version,content,worlds,servers,screenshots,logs}.rs` | Per-instance tabs (content also has mod updates and the rollback dialogs, and the shared `pane_head`/`panes`/`padded` the other tabs use; worlds: a hover list beside the backups table; servers edit in place; screenshots: tiles and an in-section viewer, Esc back to the grid; log history has the crash analysis panel) |
-| `ui/{new_instance,export,version_picker,icon_picker,group_manager,settings,accounts}.rs` | Dialogs and pages |
+| `ui/{new_instance,export,version_picker,icon_picker,group_manager,settings,accounts}.rs` | Sheets and pages: new instance and import (two panes over `content::sheet_foot`; `group_field` is a field with a menu of choices), export (format group, checklist), the version picker (versions and loader as compact hover lists, also the overview's change version), icon tiles, groups (list beside the group's rows and members), settings (numbered groups; keys as rows of key buttons), accounts (full hover list, the sign-in code as the one big figure, the skin beside) |
 | `ui/skin_view.rs` | 3D player model: one coloured quad per texel, rotated, projected and painted back to front as an `egui::Mesh` |
-| `ui/widgets.rs` | The old widget kit, still used by every screen until it's redesigned (Phases 3–8) |
 
 ## Patterns to follow
 
 - **StarShell look** (the `starshell-design` skill is the authority; the plan maps it onto each screen):
   type carries the design, structure is drawn with 1px hairlines, radius 0 everywhere, no shadows,
   gradients or blur, one accent for hover/focus/active/selected only.
-  - Colours come only from tokens: in redesigned code `Tokens` (`t.accent`, `t.wash(a)`, `t.error()`,
-    `t.named("blue")`…) and sizes/durations from `design::tokens`; in old screens `Theme` (`t.fg_a(alpha)`…).
-  - Redesigned screens draw with `design::kit` (see the gallery), not `ui/widgets.rs`. Kit parts take `t: &Tokens`,
+  - Colours come only from tokens: `Tokens` (`t.accent`, `t.wash(a)`, `t.error()`,
+    `t.named("blue")`…) and sizes/durations from `design::tokens`.
+  - Every screen draws with `design::kit` (see the gallery). Kit parts take `t: &Tokens`,
     take a `hot` flag for keyboard-current (same response as hover), never change a value just by being drawn, and
     register AccessKit info.
-  - The single filled button on a screen is `kit::Button::filled()` (old screens: `w::primary_button`).
+  - The single filled button on a screen is `kit::Button::filled()`.
+  - Button and caption labels render uppercase; a key keeps its case (`Button::key`, `text::key_job`): `e` and `E` are different keys.
   - Galleys painted in a state colour are laid out in `Color32::PLACEHOLDER`: a galley's own colour wins over the paint colour.
   - Light and dark exist together with the same token names; never hard-code a colour.
 - **Text clips by default:** the global wrap mode is `Extend`.
-  - Paragraphs that should wrap use `w::para`, which also avoids the justified spacing inside `ui.columns`.
+  - Paragraphs that should wrap use `kit::body` / `body_muted` / `text::body_colored`. Cap their width with
+    `ui.set_max_width(ui.available_width().min(..))`: a plain `set_max_width` widens a narrow pane.
   - Single lines that may be long use `Label::truncate()`.
   - To keep text from overlapping buttons, lay the buttons out first (right-to-left), then the text in the space left.
 - **Controls drawn over an allocated row** (a switch on a hover row, buttons in a banner) go in `ui.new_child(UiBuilder::new().max_rect(r))`, never `scope_builder`: a scope allocates in the parent and moves its cursor back up, so the next row overlaps.
-- **Rows:** use `w::menu_row` / `lead_row` / `drag_row` / `rich_row` / `rich_row_dim`.
-  - Mark the selection in the focused pane with `w::focus_mark`.
+- **Rows:** things you choose from are `kit::HoverList` rows (selected = the wash, hot = the keyboard's row while
+  its pane has the keys); lists you work through are `QuietRow`s; settings are `SettingRow`s; data is a quiet table.
+  - Panes side by side open with heads of the same height (`content::pane_head`'s `min_h`), so their rules are one line.
   - Scroll to the selection only after a keyboard move, never every frame.
 - **Keyboard:** the screen has zones (`Zone::List/Main/Side`).
   - `App::keys` turns key presses into a `Nav` through the `Keymap`.
@@ -111,11 +113,9 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 - **Background work:** `Promise::spawn(&app.rt, ctx, fut)` and poll `take()` each frame.
   - Long jobs carry a `Task` so the status bar shows progress.
 - **Destructive actions:** go through `Modal::Confirm` with a `ConfirmAction`.
-- **Icons in UI text:** redesigned code uses Phosphor by name (`design::glyphs`, bundled, `fonts::icons`); old
-  screens use Nerd Font glyphs until they move over.
-  - A symbols-only Nerd Font is bundled as a fallback (`assets/fonts`), so they render anywhere.
+- **Icons in UI text:** Phosphor by name (`design::glyphs`, bundled, `fonts::icons`).
   - Avoid Unicode symbols that plain fonts lack: ⏎ ▶ ▸ ▾ were swapped out for this reason.
-  - Write private-use glyphs as `\u{f44b}` escapes; they can get lost when pasted through tools.
+  - Add new icons to `glyphs.rs` as `\u{…}` escapes; private-use glyphs get lost when pasted through tools.
 - **Contrast:** every text colour and clarity hue is at least 4.5:1 on its own background
   (`design::tokens::tests::every_text_colour_is_at_least_4_5_to_1`). Check new colours on the real background.
   The one exception is placeholder text in an empty field (`text_hint`, about 3.3:1, decided 2026-11-21: a hint at
@@ -146,7 +146,9 @@ test (and a rule here) with any fix that sets a new one.
 - **Tests:** under `cfg(test)`, `paths::data_dir`/`config_dir` live in `/tmp/asteria-test-<pid>`, so no
   test touches real data. Put test scratch under `paths::test_root()`.
 - **Pack imports:** Modrinth version URLs (`/modpack/<slug>/version/<id or number>`) install that
-  version or fail; `.mrpack` files are checked before the instance exists (HTTPS downloads, a valid SHA-1 per file).
+  version or fail; `.mrpack` files are checked before the instance exists (HTTPS downloads, a valid SHA-1 per file). A pack Modrinth hosts gets its project's icon, found
+  by the `.mrpack`'s SHA-1 (`import::modrinth_icon`; best effort, 20 s at most, never fails the import; network test
+  `import::tests::modrinth_packs_bring_their_icon`).
 - **Mod updates:** `modrinth::check_updates` offers a file only if Modrinth's newest compatible build is newer *by date*
   than the installed one (a hand-installed beta isn't "updated" to an older release). Nothing is written until each
   checked file is found again by SHA-1 (the very path checked if it still matches, else the same file enabled or

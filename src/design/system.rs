@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use super::fonts::FontSet;
-use super::legacy::Theme;
+use super::style;
 use super::motion::{self, Motion};
 use super::tokens::{self, Palette, Tokens};
 
@@ -138,11 +138,9 @@ fn spawn_watcher(ctx: egui::Context, start: Preference) -> Arc<Mutex<Pending>> {
     pending
 }
 
-/// The look in use: tokens (crossfading between palettes), the old screens' `Theme` made
-/// from the same colours, and the fonts.
+/// The look in use: tokens (crossfading between palettes) and the fonts.
 pub struct Look {
     pub tokens: Tokens,
-    pub theme: Theme,
     pub fonts: FontSet,
     preference: Preference,
     darkness: f32,
@@ -155,11 +153,10 @@ impl Look {
         let fonts = FontSet::resolve();
         fonts.apply(ctx);
         let tokens = Tokens { reduced_motion: preference.reduced_motion, ..Tokens::new(preference.dark) };
-        let theme = Theme::from_palette(&tokens.p, preference.dark);
-        theme.apply(ctx);
+        style::apply(ctx, &tokens);
         motion::set_reduced(ctx, preference.reduced_motion);
         let watcher = spawn_watcher(ctx.clone(), preference);
-        Self { tokens, theme, fonts, preference, darkness: if preference.dark { 1.0 } else { 0.0 }, watcher }
+        Self { tokens, fonts, preference, darkness: if preference.dark { 1.0 } else { 0.0 }, watcher }
     }
 
     /// Takes what the watcher saw and moves the crossfade on. True when the colours changed
@@ -185,8 +182,7 @@ impl Look {
             dark: self.preference.dark,
             reduced_motion: self.preference.reduced_motion,
         };
-        self.theme = Theme::from_palette(&self.tokens.p, self.preference.dark);
-        self.theme.apply(ctx);
+        style::apply(ctx, &self.tokens);
         true
     }
 }

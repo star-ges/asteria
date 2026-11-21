@@ -567,7 +567,6 @@ pub fn open_sets(app: &mut App, ctx: &egui::Context, inst: &Instance, names: Has
 pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
     let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
-    ui.set_max_width(tk::SHEET_WIDTH_WIDE);
     if let Some(p) = &s.scan
         && let Some(r) = p.take()
     {
@@ -594,7 +593,7 @@ pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
     kit::heading(ui, &t, "Mod sets");
     ui.add_space(tk::UNIT);
     ui.scope(|ui| {
-        ui.set_max_width(tk::SETTING_DESCRIPTION_WIDTH);
+        ui.set_max_width(ui.available_width().min(tk::SETTING_DESCRIPTION_WIDTH));
         kit::body_muted(ui, &t, &format!("Named arrangements of {}'s mods: tick a set's mods on the right. Switching to a set turns mods on and off; nothing is removed.", inst.name));
     });
     ui.add_space(tk::GUTTER);
@@ -1016,7 +1015,7 @@ fn worlds_note(ui: &mut Ui, t: &Tokens) {
 fn start_dialog(app: &mut App, s: &mut StartDialog, ui: &mut Ui) -> bool {
     let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
-    ui.set_max_width(tk::SHEET_WIDTH);
+    ui.set_max_width(ui.available_width().min(tk::SHEET_WIDTH));
     let kb = app.modal_nav();
     let moved = kb.filter(|n| n.is_move()).and_then(|n| n.step(s.rows.len(), Some(s.selected)));
     if let Some(n) = moved {
@@ -1100,7 +1099,7 @@ const ANSWERS: [(Answer, &str, &str); 3] = [
 fn ask_dialog(app: &mut App, a: &mut AskDialog, ui: &mut Ui) -> bool {
     let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
-    ui.set_max_width(tk::SHEET_WIDTH);
+    ui.set_max_width(ui.available_width().min(tk::SHEET_WIDTH));
     let Some(inst) = app.instances.iter().find(|i| i.id == a.inst_id).cloned() else { return true };
     let Some(b) = app.mod_sets.bisect(&inst).filter(|b| b.done.is_none()) else { return true };
     let kb = app.modal_nav();

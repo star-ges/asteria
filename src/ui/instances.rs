@@ -1,8 +1,7 @@
 use egui::{Align, Layout, RichText, Sense, Ui, vec2};
 
-use super::widgets as w;
 use super::{App, Confirm, ConfirmAction, Modal, ToastKind, config, content, logs, new_instance, screenshots, servers, version, worlds};
-use crate::design::kit::{self, Button, HoverList, HoverRow, SectionLabel, Spec, Variant};
+use crate::design::kit::{self, Button, HoverList, HoverRow, SectionLabel, SettingRow, Spec, Variant};
 use crate::design::{glyphs as g, tokens as tk};
 use super::nav::{Nav, Zone};
 use crate::icons;
@@ -437,8 +436,8 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
     sections(app, ui);
     ui.spacing_mut().item_spacing.y = spacing;
     // Panes with heads and hover lists run to the page's edges (their rules and rows reach the
-    // lines); the overview sits on the gutter.
-    let side = if app.inst_tab == InstTab::Overview { tk::GUTTER } else { 0.0 };
+    // lines); the overview sits on the gutter, unless the version picker's panes take it over.
+    let side = if app.inst_tab == InstTab::Overview && !app.version.picker_open() { tk::GUTTER } else { 0.0 };
     egui::Frame::new().inner_margin(egui::Margin { left: side as i8, right: side as i8, top: tk::GAP as i8, bottom: tk::GAP as i8 }).show(ui, |ui| {
         // Files dropped now go into this tab's folder: its pane is what the drop hint frames.
         app.drop_rect = Some(ui.available_rect_before_wrap().expand2(vec2(side, tk::GAP)));
@@ -540,8 +539,8 @@ fn header(app: &mut App, ui: &mut Ui, inst: &Instance) {
     });
     let none = "—";
     let played = instance::format_duration(inst.played_secs);
-    let last = w::ago(inst.last_played);
-    let size = disk.map(w::size_label).unwrap_or_else(|| "measuring".into());
+    let last = kit::text::ago(inst.last_played);
+    let size = disk.map(kit::text::size_label).unwrap_or_else(|| "measuring".into());
     let group = if inst.group.is_empty() { none } else { &inst.group };
     let share = if inst.share_set.is_empty() { none } else { &inst.share_set };
     let worlds = if inst.world_set.is_empty() { none } else { &inst.world_set };
@@ -688,121 +687,137 @@ pub enum EditOutcome {
 }
 
 pub fn edit(app: &mut App, s: &mut EditState, ui: &mut Ui) -> EditOutcome {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let activate = app.modal_nav() == Some(Nav::Activate);
-    ui.set_width(520.0);
-    w::heading(ui, &t, "Edit instance");
-    ui.add_space(10.0);
+    ui.set_max_width(ui.available_width().min(tk::SHEET_WIDTH));
+    ui.spacing_mut().item_spacing.y = 0.0;
+    kit::heading(ui, &t, "Edit instance");
+    ui.add_space(tk::GUTTER);
 
-    let field_w = 340.0;
     let groups = app.groups.names();
     let sets = Kind::ALL.map(|k| app.all_sets(k));
-    egui::Grid::new("edit-grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
-        ui.label(RichText::new("name").color(t.muted));
-        w::text_input(ui, &mut s.name, "", field_w, false);
-        ui.end_row();
-
-        ui.label(RichText::new("group").color(t.muted));
-        new_instance::group_field(ui, &t, &mut s.group, &groups, "no group", field_w);
-        ui.end_row();
-
-        ui.label(RichText::new("share set").color(t.muted))
-            .on_hover_text("instances in the same share set share resource packs, shader packs and schematics");
-        new_instance::group_field(ui, &t, &mut s.sets[0].value, &sets[0], "not shared", field_w);
-        ui.end_row();
-
-        ui.label(RichText::new("world set").color(t.muted))
-            .on_hover_text("instances in the same world set share their worlds; they must play the same minecraft version and loader");
-        new_instance::group_field(ui, &t, &mut s.sets[1].value, &sets[1], "not shared", field_w);
-        ui.end_row();
-
-        ui.label(RichText::new("memory").color(t.muted));
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut s.custom_memory, "");
-            if s.custom_memory {
-                ui.add(egui::Slider::new(&mut s.memory_mb, 1024..=32768).step_by(512.0).suffix(" MiB"));
-            } else {
-                ui.label(RichText::new(format!("default ({} MiB)", app.cfg.default_memory_mb)).color(t.muted));
-            }
+    let foot = tk::LINE + tk::GAP + tk::BUTTON_HEIGHT + tk::GUTTER;
+    let control = |ui: &Ui| ui.available_width().min(tk::SETTING_CONTROL_WIDTH);
+    egui::ScrollArea::vertical().id_salt("edit-instance").max_height((ui.available_height() - foot).max(tk::SETTING_ROW_HEIGHT * 3.0)).auto_shrink([false, true]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        kit::setting_group(ui, &t, 1, "Instance", "", |ui| {
+            SettingRow::new("Name").show(ui, &t, |ui| {
+                let w = control(ui);
+                kit::Field::new(&mut s.name).hint("Instance name").width(w).show(ui, &t);
+            });
+            SettingRow::new("Group").show(ui, &t, |ui| {
+                let w = control(ui);
+                new_instance::group_field(ui, &t, egui::Id::new("edit-group"), &mut s.group, &groups, "no group", "No group", w);
+            });
         });
-        ui.end_row();
-
-        ui.label(RichText::new("window").color(t.muted));
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut s.custom_window, "");
-            if s.custom_window {
-                ui.add(egui::DragValue::new(&mut s.window.0).range(320..=7680));
-                ui.label("×");
-                ui.add(egui::DragValue::new(&mut s.window.1).range(240..=4320));
-            } else {
-                ui.label(RichText::new("game default").color(t.muted));
-            }
+        kit::setting_group(ui, &t, 2, "Sharing", "", |ui| {
+            SettingRow::new("Share set").description("Instances in the same share set share resource packs, shader packs and schematics.").show(ui, &t, |ui| {
+                let w = control(ui);
+                new_instance::group_field(ui, &t, egui::Id::new("edit-share-set"), &mut s.sets[0].value, &sets[0], "not shared", "Not shared", w);
+            });
+            SettingRow::new("World set").description("Instances in the same world set share their worlds, and play the same Minecraft version and loader.").show(ui, &t, |ui| {
+                let w = control(ui);
+                new_instance::group_field(ui, &t, egui::Id::new("edit-world-set"), &mut s.sets[1].value, &sets[1], "not shared", "Not shared", w);
+            });
         });
-        ui.end_row();
-
-        ui.label(RichText::new("jvm args").color(t.muted));
-        w::text_input(ui, &mut s.jvm_args, "-XX:+UseZGC", field_w, false);
-        ui.end_row();
-
-        ui.label(RichText::new("java").color(t.muted));
-        w::text_input(ui, &mut s.java_path, "auto (mojang runtime)", field_w, false);
-        ui.end_row();
-
-        ui.label(RichText::new("wrapper").color(t.muted)).on_hover_text("a command the game runs through, like prime-run or gamemoderun");
-        let global = match app.cfg.wrapper_command.trim() {
-            "" => "none".to_string(),
-            g => format!("default ({g})"),
-        };
-        w::text_input(ui, &mut s.wrapper_command, &global, field_w, false);
-        ui.end_row();
+        // What changing a set does to the files, before saving.
+        let warnings: Vec<_> = s.sets.iter_mut().filter_map(|f| share_warning(app, &s.id, f, ui.ctx())).collect();
+        if !warnings.is_empty() {
+            content::padded(ui, |ui| {
+                ui.set_max_width(ui.available_width().min(tk::SETTING_DESCRIPTION_WIDTH));
+                for (caption, text, color) in warnings {
+                    ui.add_space(tk::GAP);
+                    kit::bracketed(ui, &t, caption, |ui| kit::text::body_colored(ui, &text, color.unwrap_or(t.text_strong)));
+                }
+                ui.add_space(tk::GAP);
+            });
+            kit::rule(ui, &t, true);
+        }
+        let default_mem = app.cfg.default_memory_mb;
+        kit::setting_group(ui, &t, 3, "Game", "", |ui| {
+            let caption = if s.custom_memory { format!("default {default_mem} MiB") } else { format!("default · {default_mem} MiB") };
+            SettingRow::new("Memory").caption(&caption).show(ui, &t, |ui| {
+                if kit::switch(ui, &t, s.custom_memory, true, false, "own memory").clicked() {
+                    s.custom_memory = !s.custom_memory;
+                }
+                if s.custom_memory {
+                    let mut v = s.memory_mb as f64;
+                    let w = (control(ui) - tk::SWITCH_WIDTH - tk::GAP).max(tk::GUTTER * 4.0);
+                    kit::Slider::new(&mut v, 1024.0, 32768.0).step(512.0).value_text(format!("{} MiB", s.memory_mb)).mark(default_mem as f64).width(w).show(ui, &t);
+                    s.memory_mb = v as u32;
+                }
+            });
+            let caption = if s.custom_window { "width × height" } else { "game default" };
+            SettingRow::new("Window").caption(caption).show(ui, &t, |ui| {
+                if kit::switch(ui, &t, s.custom_window, true, false, "own window size").clicked() {
+                    s.custom_window = !s.custom_window;
+                }
+                if s.custom_window {
+                    let w = ((control(ui) - tk::SWITCH_WIDTH - tk::GAP * 3.0 - tk::GAP) / 2.0).max(tk::GUTTER * 2.0);
+                    config::number(ui, &t, &mut s.window.1, 240..=4320, 1.0, false, w);
+                    kit::caption(ui, &t, "×");
+                    config::number(ui, &t, &mut s.window.0, 320..=7680, 1.0, false, w);
+                }
+            });
+            SettingRow::new("JVM arguments").caption("added after Asteria's own").show(ui, &t, |ui| {
+                let w = control(ui);
+                kit::Field::new(&mut s.jvm_args).hint("-XX:+UseZGC").width(w).show(ui, &t);
+            });
+            SettingRow::new("Java").caption("a java binary").show(ui, &t, |ui| {
+                let w = control(ui);
+                kit::Field::new(&mut s.java_path).hint("Mojang's runtime for the version").width(w).show(ui, &t);
+            });
+            let global = match app.cfg.wrapper_command.trim() {
+                "" => "None".to_string(),
+                g => format!("Default: {g}"),
+            };
+            SettingRow::new("Wrapper").caption("like prime-run or gamemoderun").show(ui, &t, |ui| {
+                let w = control(ui);
+                kit::Field::new(&mut s.wrapper_command).hint(&global).width(w).show(ui, &t);
+            });
+        });
     });
 
-    for f in &mut s.sets {
-        share_warning(app, &s.id, f, ui);
-    }
-
-    ui.add_space(18.0);
+    ui.add_space(tk::GUTTER);
     let mut out = EditOutcome::Keep;
-    ui.horizontal(|ui| {
-        let save = w::primary_button(ui, &t, "save").clicked() || activate || ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if w::button(ui, "cancel").clicked() {
-            out = EditOutcome::Close;
-        }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if w::danger_button(ui, &t, "delete…").clicked() {
-                out = EditOutcome::Delete;
+    let k = |a| app.keymap.label(a);
+    let hints = [(k(crate::keymap::Action::Activate), "save")];
+    let clicked = content::sheet_foot(ui, &t, &hints, &[Button::new("save").filled(), Button::new("cancel"), Button::new("delete").icon(g::TRASH)]);
+    match clicked {
+        Some(1) => out = EditOutcome::Close,
+        Some(2) => out = EditOutcome::Delete,
+        _ => {}
+    }
+    let save = clicked == Some(0) || activate || ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let new: [String; 2] = [0, 1].map(|n| s.sets[n].value.trim().to_string());
+    let changed: Vec<Kind> = Kind::ALL.into_iter().zip(&new).filter(|(k, v)| app.instances.iter().any(|i| i.id == s.id && k.set_of(i) != v.as_str())).map(|(k, _)| k).collect();
+    if save && let Err(e) = crate::launch::split_args(&s.jvm_args) {
+        app.toast(ToastKind::Error, format!("JVM arguments: {e}"));
+    } else if save && let Err(e) = crate::launch::split_args(&s.wrapper_command) {
+        app.toast(ToastKind::Error, format!("wrapper command: {e}"));
+    } else if save && let Some(e) = set_change_error(app, s, &new, &changed) {
+        app.toast(ToastKind::Error, e);
+    } else if save {
+        if let Some(i) = app.instances.iter_mut().find(|i| i.id == s.id) {
+            if !s.name.trim().is_empty() {
+                i.name = s.name.trim().to_string();
             }
-        });
-        let new: [String; 2] = [0, 1].map(|n| s.sets[n].value.trim().to_string());
-        let changed: Vec<Kind> = Kind::ALL.into_iter().zip(&new).filter(|(k, v)| app.instances.iter().any(|i| i.id == s.id && k.set_of(i) != v.as_str())).map(|(k, _)| k).collect();
-        if save && let Err(e) = crate::launch::split_args(&s.jvm_args) {
-            app.toast(ToastKind::Error, format!("JVM arguments: {e}"));
-        } else if save && let Err(e) = crate::launch::split_args(&s.wrapper_command) {
-            app.toast(ToastKind::Error, format!("wrapper command: {e}"));
-        } else if save && let Some(e) = set_change_error(app, s, &new, &changed) {
-            app.toast(ToastKind::Error, e);
-        } else if save {
-            if let Some(i) = app.instances.iter_mut().find(|i| i.id == s.id) {
-                if !s.name.trim().is_empty() {
-                    i.name = s.name.trim().to_string();
-                }
-                i.group = s.group.trim().to_string();
-                i.memory_mb = s.custom_memory.then_some(s.memory_mb);
-                i.window = s.custom_window.then_some(s.window);
-                i.jvm_args = s.jvm_args.trim().to_string();
-                i.java_path = s.java_path.trim().to_string();
-                i.wrapper_command = s.wrapper_command.trim().to_string();
-                [i.share_set, i.world_set] = new;
-                if let Err(e) = i.save() {
-                    app.toast(ToastKind::Error, format!("Save failed: {e}"));
-                } else if !changed.is_empty() {
-                    let i = i.clone();
-                    app.start_sharing(ui.ctx(), vec![i]);
-                }
+            i.group = s.group.trim().to_string();
+            i.memory_mb = s.custom_memory.then_some(s.memory_mb);
+            i.window = s.custom_window.then_some(s.window);
+            i.jvm_args = s.jvm_args.trim().to_string();
+            i.java_path = s.java_path.trim().to_string();
+            i.wrapper_command = s.wrapper_command.trim().to_string();
+            [i.share_set, i.world_set] = new;
+            if let Err(e) = i.save() {
+                app.toast(ToastKind::Error, format!("Save failed: {e}"));
+            } else if !changed.is_empty() {
+                let i = i.clone();
+                app.start_sharing(ui.ctx(), vec![i]);
             }
-            out = EditOutcome::Close;
         }
-    });
+        out = EditOutcome::Close;
+    }
     out
 }
 
@@ -841,12 +856,13 @@ pub fn set_members<'a>(kind: Kind, set: &'a str, instances: &'a [Instance], link
     })
 }
 
-/// What changing a set will do to the files, before saving.
-fn share_warning(app: &App, id: &str, f: &mut SetField, ui: &mut Ui) {
-    let t = &app.t;
+/// What changing a set will do to the files, before saving: a caption, the paragraph and
+/// its colour (clay when the change can't be made).
+fn share_warning(app: &App, id: &str, f: &mut SetField, ctx: &egui::Context) -> Option<(&'static str, String, Option<egui::Color32>)> {
+    let t = &app.look.tokens;
     let new = f.value.trim();
     if new == f.old {
-        return;
+        return None;
     }
     let old = f.old.clone();
     let what = match f.kind {
@@ -854,34 +870,33 @@ fn share_warning(app: &App, id: &str, f: &mut SetField, ui: &mut Ui) {
         Kind::Worlds => "worlds",
     };
     let mismatch = (f.kind == Kind::Worlds).then(|| app.instances.iter().find(|i| i.id == id)).flatten().and_then(|i| crate::world_sets::mismatch(i, new, &app.instances));
-    let (text, color) = if let Some(why) = mismatch {
-        (format!("\u{f071} {why}."), t.red)
+    Some(if let Some(why) = mismatch {
+        ("can't join that world set", format!("{why}."), Some(t.error()))
     } else if new.is_empty() {
         if f.leave_size.is_none() && f.leave_bytes.is_none() {
             let (kind, dir) = (f.kind, crate::shares::set_dir(f.kind, &old));
-            f.leave_size = Some(crate::task::Promise::spawn(&app.rt, ui.ctx(), async move {
+            f.leave_size = Some(crate::task::Promise::spawn(&app.rt, ctx, async move {
                 Ok(tokio::task::spawn_blocking(move || kind.folders().iter().map(|f| crate::fsutil::tree_size(&dir.join(f))).sum()).await?)
             }));
         }
         if let Some(Ok(n)) = f.leave_size.as_ref().and_then(|p| p.take()) {
             f.leave_bytes = Some(n);
         }
-        let size = f.leave_bytes.map(w::size_label).unwrap_or_else(|| "measuring…".into());
+        let size = f.leave_bytes.map(kit::text::size_label).unwrap_or_else(|| "measuring".into());
         (
-            format!("\u{f071} Leaving “{old}” gives this instance its own copy of the set's {what} ({size}). Free on btrfs or xfs; on other filesystems it takes that much space again."),
-            t.yellow,
+            if f.kind == Kind::Packs { "leaving the share set" } else { "leaving the world set" },
+            format!("Leaving “{old}” gives this instance its own copy of the set's {what} ({size}). Free on btrfs or xfs; on other filesystems it takes that much space again."),
+            None,
         )
     } else if old.is_empty() {
         let more = match f.kind {
             Kind::Packs => "",
             Kind::Worlds => " Before each launch, worlds last played with mods this instance lacks are snapshotted first.",
         };
-        (format!("This instance's {what} move into “{new}”, shared with its other instances. Name clashes keep both.{more}"), t.muted)
+        (if f.kind == Kind::Packs { "joining a share set" } else { "joining a world set" }, format!("This instance's {what} move into “{new}”, shared with its other instances. Name clashes keep both.{more}"), None)
     } else {
-        (format!("This instance's {what} stay with “{old}”; it uses “{new}”'s instead."), t.muted)
-    };
-    ui.add_space(10.0);
-    w::para(ui, RichText::new(text).color(color));
+        (if f.kind == Kind::Packs { "changing share set" } else { "changing world set" }, format!("This instance's {what} stay with “{old}”; it uses “{new}”'s instead."), None)
+    })
 }
 
 impl App {

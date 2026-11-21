@@ -12,7 +12,10 @@ pub const USER_AGENT: &str = concat!("asteria/", env!("CARGO_PKG_VERSION"), " (m
 pub fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
-        let b = reqwest::Client::builder().user_agent(USER_AGENT).connect_timeout(std::time::Duration::from_secs(15));
+        // A read that stalls this long fails, so `download` retries it rather than waiting forever
+        // on a connection a CDN has stopped answering (no limit on the whole transfer: big files
+        // over slow links are fine as long as bytes keep coming).
+        let b = reqwest::Client::builder().user_agent(USER_AGENT).connect_timeout(std::time::Duration::from_secs(15)).read_timeout(std::time::Duration::from_secs(30));
         // Each #[tokio::test] has its own runtime, and a pooled connection dies with the runtime that opened it.
         #[cfg(test)]
         let b = b.pool_max_idle_per_host(0);
@@ -86,11 +89,15 @@ impl Download {
     }
 }
 
+/// Tries per download. One file that runs out fails a whole pack import, so a struggling CDN
+/// (resets, stalls cut by the read timeout) gets several tries, backing off 1, 2, 4, 8 s.
+const DOWNLOAD_TRIES: u32 = 5;
+
 pub async fn download(d: &Download) -> anyhow::Result<()> {
     let mut last_err = None;
-    for attempt in 0..3 {
+    for attempt in 0..DOWNLOAD_TRIES {
         if attempt > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(500 * attempt)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(1 << (attempt - 1))).await;
         }
         match download_once(d).await {
             Ok(()) => return Ok(()),
