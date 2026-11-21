@@ -202,7 +202,8 @@ pub fn hints(app: &App) -> Vec<(String, &'static str)> {
                 (InstTab::Worlds, false) => vec![(p(Down, Up), "worlds"), (l(Activate), "play world"), (l(Rename), "rename"), (l(Duplicate), "duplicate"), (l(Add), "back up"), (l(Delete), "delete"), (l(FocusRight), "backups")],
                 (InstTab::Worlds, true) => vec![(p(Down, Up), "backups"), (l(Activate), "restore"), (l(Add), "back up now"), (l(Delete), "delete"), (l(Folder), "folder")],
                 (InstTab::Servers, _) => vec![(p(Down, Up), "servers"), (l(Activate), "join"), (l(Add), "add"), (l(Edit), "edit"), (p(MoveDown, MoveUp), "reorder"), (l(Delete), "remove")],
-                (InstTab::Screenshots, _) => vec![(p(Down, Up), "screenshots"), (l(Activate), "open"), (l(Copy), "copy"), (l(Delete), "delete"), (l(Folder), "folder"), (l(Toggle), "all instances")],
+                (InstTab::Screenshots, _) if app.shots.viewing() => vec![(p(Down, Up), "step"), (l(Activate), "open"), (l(Copy), "copy"), (l(Delete), "delete"), (l(Folder), "folder"), (l(Back), "all screenshots")],
+                (InstTab::Screenshots, _) => vec![(p(Down, Up), "screenshots"), (l(Activate), "view"), (l(Copy), "copy"), (l(Delete), "delete"), (l(Folder), "folder"), (l(Toggle), "all instances")],
                 (InstTab::Config, false) if app.config.area != super::config::Area::Minecraft => {
                     let what = if app.config.area == super::config::Area::Shaders { "packs" } else { "files" };
                     vec![(l(ConfigArea), "minecraft/mods/shaders"), (p(Down, Up), what), (l(Toggle), "open/fold"), (l(FocusRight), "edit"), (l(Search), "filter"), (l(SaveConfig), "save"), (l(Folder), "folder")]

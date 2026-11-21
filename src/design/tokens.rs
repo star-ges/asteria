@@ -299,6 +299,28 @@ pub const CONTENT_TWO_PANES: f32 = 760.0;
 pub const UPDATE_VERSION_WIDTH: f32 = 120.0;
 /// The "taken" column of a backups table.
 pub const BACKUP_WHEN_WIDTH: f32 = 200.0;
+/// The "kind" column of a backups table (`AUTO`, `KEPT`).
+pub const BACKUP_KIND_WIDTH: f32 = 80.0;
+/// The worlds tab's worlds pane: its share of the tab (the backups table takes the rest).
+pub const WORLDS_SHARE: f32 = 0.55;
+/// The log history's file list: its share of the tab, within these bounds.
+pub const LOG_FILES_SHARE: f32 = 0.26;
+pub const LOG_FILES_MIN: f32 = 220.0;
+pub const LOG_FILES_MAX: f32 = 340.0;
+/// A log line's level column (`WARN`, `ERROR`, `ASTERIA`).
+pub const LOG_LEVEL_WIDTH: f32 = 76.0;
+/// Log lines: a little air above and below the raw text.
+pub const LOG_LINE_HEIGHT: f32 = SIZE_MONO + 7.0;
+/// The crash analysis gets at most this share of the log's pane.
+pub const CRASH_PANEL_SHARE: f32 = 0.5;
+/// A crash analysis' suspects shown before "n more".
+pub const CRASH_SUSPECTS_SHOWN: usize = 4;
+/// Its confidence column.
+pub const CRASH_CONFIDENCE_WIDTH: f32 = 100.0;
+/// A server's name and address fields go side by side while each gets at least this.
+pub const SERVER_FIELD_MIN: f32 = 180.0;
+/// Screenshot tiles: at least this wide (as many columns as fit).
+pub const SHOT_TILE_MIN: f32 = 240.0;
 /// Leftward shift of the hot title.
 pub const HOVER_SHIFT: f32 = 32.0;
 pub const HOVER_SHIFT_COMPACT: f32 = 20.0;

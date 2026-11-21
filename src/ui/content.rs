@@ -471,6 +471,19 @@ pub fn padded<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: 0, bottom: 0 }).show(ui, add).inner
 }
 
+/// Two panes side by side running to the page's edges, a strong hairline between, the left one
+/// `left_w` wide. Takes the rest of the page; the panes are children that draw where they are.
+pub(super) fn panes(ui: &mut Ui, t: &Tokens, left_w: f32) -> (Ui, Ui) {
+    let area = ui.available_rect_before_wrap();
+    let line_x = area.left() + left_w.floor();
+    let left = egui::Rect::from_min_max(area.min, egui::pos2(line_x, area.bottom()));
+    let right = egui::Rect::from_min_max(egui::pos2(line_x + tk::LINE, area.top()), area.max);
+    kit::vline(ui.painter(), line_x, area.y_range(), t.line_strong);
+    ui.allocate_rect(area, egui::Sense::hover());
+    let child = |ui: &mut Ui, r, salt| ui.new_child(egui::UiBuilder::new().max_rect(r).id_salt(salt).layout(Layout::top_down(Align::Min)));
+    (child(ui, left, "left-pane"), child(ui, right, "right-pane"))
+}
+
 pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance, kind: ContentKind) {
     let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
@@ -906,7 +919,7 @@ pub fn world_prompt_dialog(app: &mut App, p: &mut WorldPrompt, ui: &mut Ui) -> b
 /// A pane's head: `01 / MODS · 72 OF 72 ON` on the left, joined buttons on the right (under
 /// it when the pane is too narrow for both), a strong rule under. Returns the button clicked.
 /// `min_h` keeps it as tall as the pane head beside it, so their rules are one line.
-fn pane_head(ui: &mut Ui, t: &Tokens, number: usize, label: &str, aside: &str, buttons: &[kit::Button], min_h: f32) -> (Option<usize>, f32) {
+pub(super) fn pane_head(ui: &mut Ui, t: &Tokens, number: usize, label: &str, aside: &str, buttons: &[kit::Button], min_h: f32) -> (Option<usize>, f32) {
     let mut text = format!("{} / {label}", kit::text::number(number));
     if !aside.is_empty() {
         text = format!("{text} · {aside}");
@@ -1180,7 +1193,7 @@ enum Link {
 }
 
 /// A caption that leads somewhere, at `rect`: muted, accent when hovered.
-fn caption_link(ui: &mut Ui, t: &Tokens, rect: egui::Rect, id: impl std::hash::Hash + std::fmt::Debug, text: &str) -> egui::Response {
+pub(super) fn caption_link(ui: &mut Ui, t: &Tokens, rect: egui::Rect, id: impl std::hash::Hash + std::fmt::Debug, text: &str) -> egui::Response {
     let resp = ui.interact(rect.expand(4.0), ui.id().with(id), egui::Sense::click());
     let c = crate::design::motion::color(ui.ctx(), resp.id, resp.hovered() || resp.has_focus(), t.text_muted, t.accent);
     kit::text::paint_caption(ui.painter(), rect.left_center(), text, c);

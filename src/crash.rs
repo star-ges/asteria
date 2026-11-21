@@ -749,7 +749,7 @@ impl Reader<'_> {
             self.cause(
                 "out of memory",
                 format!(
-                    "Minecraft ran out of memory. Give it more under edit → memory (it has {} now); big modpacks often want 6–8 GB.",
+                    "Minecraft ran out of memory. Give it more in its edit sheet, under memory (it has {} now); big modpacks often want 6–8 GB.",
                     if game.memory_mb >= 1024 && game.memory_mb % 1024 == 0 { format!("{} GB", game.memory_mb / 1024) } else { format!("{} MB", game.memory_mb) }
                 ),
                 i,

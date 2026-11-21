@@ -1,14 +1,18 @@
-//! Singleplayer worlds in `saves/` on the left, the selected world's backups on the right.
+//! Singleplayer worlds in `saves/` on the left (a compact hover list: you choose one), the
+//! selected world's backups on the right (a quiet table: you read them), a hairline between.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use egui::{RichText, Ui};
+use egui::{Ui, vec2};
 
+use super::content::{self, padded};
 use super::widgets as w;
 use super::nav::{Nav, Zone};
 use super::{App, Confirm, ConfirmAction, Modal, ToastKind};
+use crate::design::kit;
+use crate::design::tokens::{self as tk, Tokens};
 use crate::backups::{self, Owner, Snapshot};
 use crate::instance::Instance;
 use crate::launch::QuickPlay;
@@ -237,20 +241,17 @@ pub fn add_dropped(app: &mut App, ctx: &egui::Context, inst: &Instance, paths: V
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let Some(listing) = app.worlds.sync(&app.rt, ui.ctx(), inst).cloned() else {
-        ui.add_space(12.0);
-        ui.vertical_centered(|ui| ui.label(RichText::new("reading worlds…").color(t.muted)));
+        padded(ui, |ui| kit::loading(ui, &t, "reading worlds"));
         return;
     };
     let gone = listing.gone();
     if listing.worlds.is_empty() && gone.is_empty() {
-        w::empty_state(ui, &t, "󰕒", "no worlds yet", "Create one in game, or drop a world folder or .zip here.");
-        ui.vertical_centered(|ui| {
-            if w::button(ui, "open saves folder").clicked() {
-                super::open_path(&inst.saves_dir());
-            }
-        });
+        let go = padded(ui, |ui| kit::empty_state(ui, &t, "No worlds yet", "Create one in game, or drop a world folder or .zip here.", Some("open saves folder")));
+        if go.is_some_and(|r| r.clicked()) {
+            super::open_path(&inst.saves_dir());
+        }
         return;
     }
     // Worlds, then the ones that only have backups left. Selection is by folder.
@@ -270,103 +271,193 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
     let sel_folder = s.selected.clone().filter(|f| folders.contains(f));
     let sel = sel_folder.as_ref().and_then(|f| listing.worlds.iter().find(|w| &w.folder == f)).cloned();
     let snaps: Vec<Snapshot> = sel_folder.as_ref().and_then(|f| listing.backups.get(f)).cloned().unwrap_or_default();
+    // Back up now works from either pane, like the other world keys.
+    let back_up_key = main_kb == Some(Nav::Add) || side_kb == Some(Nav::Add);
 
     let mut out = Out::default();
-    ui.columns(2, |cols| {
-        world_list(&mut cols[0], app, inst, &listing, &gone, sel.as_ref(), sel_folder.as_deref(), main_kb, zone == Zone::Main, scroll, &mut out);
-        backup_list(&mut cols[1], app, inst, sel.as_ref(), sel_folder.as_deref(), &snaps, side_kb, zone == Zone::Side, &mut out);
-    });
+    let worlds = Pane { listing: &listing, gone: &gone, sel: sel.as_ref(), sel_folder: sel_folder.as_deref() };
+    if ui.available_width() < tk::CONTENT_TWO_PANES {
+        // Too narrow for both: one pane at a time, the one with the keyboard (h/l still switch).
+        let mut side = zone == Zone::Side;
+        padded(ui, |ui| ui.horizontal(|ui| kit::segmented(ui, &t, &mut side, &[(false, "worlds"), (true, "backups")])));
+        ui.add_space(tk::GAP);
+        if side {
+            backup_pane(ui, app, &worlds, &snaps, side_kb, back_up_key, zone == Zone::Side, &mut out);
+            out.to_side |= zone != Zone::Side;
+        } else {
+            world_pane(ui, app, inst, &worlds, main_kb, back_up_key, zone == Zone::Main, scroll, &mut out);
+            out.to_main |= zone == Zone::Side;
+        }
+    } else {
+        let left_w = ui.available_width() * tk::WORLDS_SHARE;
+        let (mut left, mut right) = content::panes(ui, &t, left_w);
+        world_pane(&mut left, app, inst, &worlds, main_kb, false, zone == Zone::Main, scroll, &mut out);
+        backup_pane(&mut right, app, &worlds, &snaps, side_kb, back_up_key, zone == Zone::Side, &mut out);
+    }
     if out.to_main {
         app.focus = Zone::Main;
     }
     if out.to_side {
         app.focus = Zone::Side;
     }
-    if let Some(folder) = out.play {
-        app.launch(ui.ctx(), &inst.id, Some(QuickPlay::World(folder)));
+    if let Some(a) = out.act {
+        act(app, ui.ctx(), inst, &listing, a);
     }
+}
+
+/// What the worlds pane shows: the listing and the selection.
+struct Pane<'a> {
+    listing: &'a Listing,
+    gone: &'a [String],
+    sel: Option<&'a World>,
+    sel_folder: Option<&'a str>,
+}
+
+/// What a head button, key or row menu asked for.
+enum Act {
+    Play(String),
+    Rename(World),
+    Duplicate(World),
+    Delete(World),
+    Folder(PathBuf),
+    BackUp(World),
+    Restore(String, Snapshot),
+    DeleteBackup(String, Snapshot),
 }
 
 #[derive(Default)]
 struct Out {
-    play: Option<String>,
+    act: Option<Act>,
     to_main: bool,
     to_side: bool,
+    /// How tall the worlds pane's head came out, for the backups pane's beside it.
+    head_h: f32,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn world_list(
-    ui: &mut Ui,
-    app: &mut App,
-    inst: &Instance,
-    listing: &Listing,
-    gone: &[String],
-    sel: Option<&World>,
-    sel_folder: Option<&str>,
-    kb: Option<Nav>,
-    focused: bool,
-    scroll: bool,
-    out: &mut Out,
-) {
-    let t = app.t.clone();
-    let key = |n: Nav| kb == Some(n);
-    let moving = app.sharing.is_some();
-    ui.horizontal_wrapped(|ui| {
-        if let Some(wd) = sel {
-            if w::primary_button(ui, &t, "󰐊 play").clicked() || key(Nav::Activate) {
-                out.play = Some(wd.folder.clone());
-            }
-            if w::button(ui, "rename").clicked() || key(Nav::Rename) {
-                app.worlds.rename = Some((wd.dir.clone(), wd.name.clone()));
-            }
-            // One at a time per instance, so two copies can't pick the same folder name.
+fn act(app: &mut App, ctx: &egui::Context, inst: &Instance, listing: &Listing, a: Act) {
+    match a {
+        Act::Play(folder) => app.launch(ctx, &inst.id, Some(QuickPlay::World(folder))),
+        Act::Rename(wd) => app.worlds.rename = Some((wd.dir.clone(), wd.name.clone())),
+        Act::Duplicate(wd) => {
+            // One at a time per saves folder, so two copies can't pick the same folder name.
             // Not while shared folders move: the copy could land in a folder on its way out.
-            if (w::button(ui, "duplicate").clicked() || key(Nav::Duplicate)) && !moving && jobs_on(&app.content, &app.worlds, &saves_key(inst)).is_none() {
-                let world = wd.clone();
+            let why = if app.sharing.is_some() { Some("shared folders are moving") } else { jobs_on(&app.content, &app.worlds, &saves_key(inst)) };
+            if let Some(why) = why {
+                app.toast(ToastKind::Error, format!("Can't duplicate while {why}"));
+                return;
+            }
+            let rt = app.rt.clone();
+            let name = wd.name.clone();
+            app.worlds.start(&rt, ctx, inst, "duplicate", format!("Duplicating {name}"), move || Ok(JobDone { select: Some(saves::duplicate_world(&wd)?), note: None }));
+        }
+        Act::Delete(wd) => {
+            let kept = if listing.backups.contains_key(&wd.folder) { " Its backups are kept." } else { "" };
+            app.modal = Some(Modal::Confirm(Confirm {
+                title: "delete world".into(),
+                body: format!("Permanently delete “{}”?{kept}", wd.name),
+                button: "delete".into(),
+                action: ConfirmAction::DeletePath(wd.dir.clone()),
+            }));
+        }
+        Act::Folder(dir) => super::open_path(&dir),
+        Act::BackUp(wd) => match worlds_busy(app, inst) {
+            Some(why) => app.toast(ToastKind::Error, format!("Can't back up while {why}")),
+            None => {
+                let (dir, i, name) = (wd.dir.clone(), inst.clone(), wd.name.clone());
                 let rt = app.rt.clone();
-                app.worlds.start(&rt, ui.ctx(), inst, "duplicate", format!("Duplicating {}", wd.name), move || {
-                    Ok(JobDone { select: Some(saves::duplicate_world(&world)?), note: None })
+                app.worlds.start(&rt, ctx, inst, "back up", format!("Backing up {name}"), move || {
+                    backups::snapshot_world(&dir, Owner::of(&i), "backed up by hand", false)?;
+                    Ok(JobDone { select: None, note: Some(format!("Backed up {name}")) })
                 });
             }
-            if w::button(ui, "folder").clicked() || key(Nav::Folder) {
-                super::open_path(&wd.dir);
-            }
-            if w::danger_button(ui, &t, "delete…").clicked() || key(Nav::Delete) {
-                let kept = if listing.backups.contains_key(&wd.folder) { " Its backups are kept." } else { "" };
-                app.modal = Some(Modal::Confirm(Confirm {
-                    title: "delete world".into(),
-                    body: format!("Permanently delete “{}”?{kept}", wd.name),
-                    button: "delete".into(),
-                    action: ConfirmAction::DeletePath(wd.dir.clone()),
-                }));
-            }
-        } else if sel_folder.is_some() {
-            ui.label(RichText::new("deleted; restore it from a backup").color(t.muted));
-        } else {
-            ui.label(RichText::new("select a world").color(t.muted));
+        },
+        Act::Restore(folder, snap) => {
+            let exists = listing.worlds.iter().any(|w| w.folder == folder);
+            let body = if exists {
+                format!("Put “{folder}” back as it was on {}? The world as it is now is backed up first.", snap.when())
+            } else {
+                format!("Bring “{folder}” back as it was on {}?", snap.when())
+            };
+            app.modal = Some(Modal::Confirm(Confirm { title: "restore world".into(), body, button: "restore".into(), action: ConfirmAction::RestoreWorld(inst.id.clone(), snap) }));
         }
-        if w::button(ui, "saves folder").clicked() {
-            super::open_path(&inst.saves_dir());
+        Act::DeleteBackup(folder, snap) => {
+            app.modal = Some(Modal::Confirm(Confirm {
+                title: "delete backup".into(),
+                body: format!("Permanently delete the backup of “{folder}” from {}?", snap.when()),
+                button: "delete".into(),
+                action: ConfirmAction::DeleteBackup(snap),
+            }));
         }
-    });
+    }
+}
+
+/// A label inside a list that isn't a section of its own (`GONE · BACKUPS ONLY`): a caption over a strong rule.
+fn list_label(ui: &mut Ui, t: &Tokens, text: &str) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), tk::SECTION_LABEL_HEIGHT), egui::Sense::hover());
+    let p = ui.painter();
+    kit::text::paint_caption(p, egui::pos2(rect.left() + tk::GUTTER, rect.center().y), text, t.text_muted);
+    kit::rule::hline(p, rect.x_range(), rect.bottom() - 0.5, t.line_strong);
+}
+
+/// The worlds as a compact hover list under their head: what's selected can be played,
+/// renamed, duplicated, deleted or opened from the head, its keys or its row's menu.
+#[allow(clippy::too_many_arguments)]
+fn world_pane(ui: &mut Ui, app: &mut App, inst: &Instance, w: &Pane, kb: Option<Nav>, back_up_key: bool, focused: bool, scroll: bool, out: &mut Out) {
+    let t = app.look.tokens.clone();
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let key = |n: Nav| kb == Some(n);
+    let dup_ok = app.sharing.is_none() && jobs_on(&app.content, &app.worlds, &saves_key(inst)).is_none();
+    let n = w.listing.worlds.len();
+    let mut aside = if n == 1 { "1 world".to_string() } else { format!("{n} worlds") };
     if !inst.world_set.is_empty() {
-        ui.add(egui::Label::new(RichText::new(format!("\u{f0ac} world set “{}”", inst.world_set)).color(t.muted)).truncate())
-            .on_hover_text("these worlds are shared with the other instances in the set");
+        aside = format!("{aside} · world set {}", inst.world_set);
+    }
+    let buttons = match w.sel {
+        Some(_) => vec![kit::Button::new("play"), kit::Button::new("rename"), kit::Button::new("duplicate").enabled(dup_ok), kit::Button::new("delete"), kit::Button::new("folder")],
+        None => vec![kit::Button::new("saves folder")],
+    };
+    let (clicked, head_h) = content::pane_head(ui, &t, 1, "worlds", &aside, &buttons, 0.0);
+    out.head_h = head_h;
+    if let Some(wd) = w.sel {
+        let pick = |i: usize| clicked == Some(i);
+        out.act = if pick(0) || key(Nav::Activate) {
+            Some(Act::Play(wd.folder.clone()))
+        } else if pick(1) || key(Nav::Rename) {
+            Some(Act::Rename(wd.clone()))
+        } else if pick(2) || key(Nav::Duplicate) {
+            Some(Act::Duplicate(wd.clone()))
+        } else if pick(3) || key(Nav::Delete) {
+            Some(Act::Delete(wd.clone()))
+        } else if pick(4) || key(Nav::Folder) {
+            Some(Act::Folder(wd.dir.clone()))
+        } else if back_up_key {
+            Some(Act::BackUp(wd.clone()))
+        } else {
+            None
+        };
+    } else if clicked == Some(0) || key(Nav::Folder) {
+        out.act = Some(Act::Folder(inst.saves_dir()));
     }
 
+    // Renaming takes over the top of the list: the name as a field, save and cancel.
     if let Some((dir, name)) = &mut app.worlds.rename {
-        ui.add_space(6.0);
         let mut done = None;
-        ui.horizontal(|ui| {
-            w::field_label(ui, &t, "new name");
-            let r = w::text_input(ui, name, "", 220.0, true);
-            if w::primary_button(ui, &t, "save").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                done = Some(true);
-            }
-            if w::button(ui, "cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                done = Some(false);
-            }
+        ui.add_space(tk::GAP);
+        padded(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = tk::GAP;
+                let buttons = kit::Button::new("save").width(ui, &t) + kit::Button::new("cancel").width(ui, &t) + tk::GAP * 2.0;
+                let r = kit::Field::new(name).label("new name").width((ui.available_width() - buttons).min(tk::SETTING_CONTROL_WIDTH * 1.5)).focus(true).show(ui, &t);
+                if kit::Button::new("save").filled().show(ui, &t).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                    done = Some(true);
+                }
+                if kit::Button::new("cancel").show(ui, &t).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    done = Some(false);
+                }
+            });
         });
+        ui.add_space(tk::GAP);
+        kit::rule(ui, &t, true);
         match done {
             Some(true) => {
                 if let Err(e) = saves::rename_world(dir, name.trim()) {
@@ -379,16 +470,13 @@ fn world_list(
             None => {}
         }
     }
-    ui.add_space(6.0);
 
     let s = &mut app.worlds;
     egui::ScrollArea::vertical().id_salt("worlds").auto_shrink(false).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        let mut row = |ui: &mut Ui, folder: &str, r: egui::Response, play: bool| {
-            let on = sel_folder == Some(folder);
-            if on && focused {
-                w::focus_mark(ui, &t, r.rect);
-            }
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let mut list = kit::HoverList::begin(ui, kit::Variant::Compact).indent(tk::GUTTER + tk::HOVER_SHIFT_COMPACT);
+        let mut row = |ui: &mut Ui, folder: &str, r: &egui::Response| {
+            let on = w.sel_folder == Some(folder);
             if on && scroll {
                 r.scroll_to_me(None);
             }
@@ -397,60 +485,87 @@ fn world_list(
                 s.backup = None;
                 out.to_main = true;
             }
-            if play && r.double_clicked() {
-                out.play = Some(folder.to_string());
-            }
+            let _ = ui;
         };
-        for wd in &listing.worlds {
-            let mode = if wd.hardcore { "hardcore" } else { wd.mode };
-            let mut sub = vec![mode.to_string()];
+        for wd in &w.listing.worlds {
+            let on = w.sel_folder == Some(wd.folder.as_str());
+            let mut desc = vec![if wd.hardcore { "hardcore" } else { wd.mode }.to_string()];
             if let Some(v) = &wd.version {
-                sub.push(v.clone());
+                desc.push(v.clone());
             }
-            sub.push(w::ago(wd.last_played));
+            desc.push(format!("played {}", w::ago(wd.last_played)));
             if wd.folder != wd.name {
-                sub.push(wd.folder.clone());
+                desc.push(wd.folder.clone());
             }
             if let Some((id, name)) = &wd.played_in
                 && *id != inst.id
             {
-                sub.push(format!("last played in {name}"));
+                desc.push(format!("last played in {name}"));
             }
-            let lead = match &wd.icon {
-                Some(p) => w::Lead::Image(egui::ImageSource::Uri(format!("file://{}", p.display()).into())),
-                None => w::Lead::Glyph("󰕒"),
+            let desc = desc.join(" · ");
+            let n = w.listing.backups.get(&wd.folder).map_or(0, Vec::len);
+            let badge = match n {
+                0 => String::new(),
+                1 => "1 backup".into(),
+                n => format!("{n} backups"),
             };
-            let n = listing.backups.get(&wd.folder).map_or(0, Vec::len);
-            let right = if n > 0 { format!("\u{f006f} {n}") } else { String::new() };
-            let r = w::rich_row(ui, &t, sel_folder == Some(wd.folder.as_str()), lead, &wd.name, &sub.join("  ·  "), &right);
-            row(ui, &wd.folder, r, true);
+            let mut hr = kit::HoverRow::new(("world", &wd.folder), &wd.name).description(&desc).selected(on).hot(on && focused);
+            if let Some(icon) = &wd.icon {
+                hr = hr.image(egui::ImageSource::Uri(format!("file://{}", icon.display()).into()), 1.0);
+            }
+            if n > 0 {
+                hr = hr.badge(&badge, t.text_muted);
+            }
+            let r = list.row(ui, &t, hr);
+            row(ui, &wd.folder, &r);
+            if r.double_clicked() {
+                out.act = Some(Act::Play(wd.folder.clone()));
+            }
+            r.context_menu(|ui| {
+                let mut pick = |a: Act, ui: &mut Ui| {
+                    out.act = Some(a);
+                    ui.close();
+                };
+                if ui.button("play").clicked() {
+                    pick(Act::Play(wd.folder.clone()), ui);
+                }
+                if ui.button("rename").clicked() {
+                    pick(Act::Rename(wd.clone()), ui);
+                }
+                if ui.add_enabled(dup_ok, egui::Button::new("duplicate")).clicked() {
+                    pick(Act::Duplicate(wd.clone()), ui);
+                }
+                if ui.button("back up now").clicked() {
+                    pick(Act::BackUp(wd.clone()), ui);
+                }
+                if ui.button("folder").clicked() {
+                    pick(Act::Folder(wd.dir.clone()), ui);
+                }
+                if ui.button("delete").clicked() {
+                    pick(Act::Delete(wd.clone()), ui);
+                }
+            });
         }
-        for folder in gone {
-            let n = listing.backups.get(folder).map_or(0, Vec::len);
-            let sub = format!("deleted  ·  {n} backup{}", if n == 1 { "" } else { "s" });
-            let r = w::rich_row_dim(ui, &t, sel_folder == Some(folder.as_str()), w::Lead::Glyph("󰕒"), folder, &sub, "", true);
-            row(ui, folder, r, false);
+        if !w.gone.is_empty() {
+            list_label(ui, &t, "gone · backups only");
         }
+        for folder in w.gone {
+            let on = w.sel_folder == Some(folder.as_str());
+            let n = w.listing.backups.get(folder).map_or(0, Vec::len);
+            let desc = format!("deleted · {n} backup{}", if n == 1 { "" } else { "s" });
+            let r = list.row(ui, &t, kit::HoverRow::new(("gone", folder), folder).description(&desc).dim(true).selected(on).hot(on && focused));
+            row(ui, folder, &r);
+        }
+        list.end(ui);
     });
 }
 
+/// The selected world's backups as a quiet table under their head: back up now, and restore,
+/// delete or open the one picked.
 #[allow(clippy::too_many_arguments)]
-fn backup_list(
-    ui: &mut Ui,
-    app: &mut App,
-    inst: &Instance,
-    sel: Option<&World>,
-    sel_folder: Option<&str>,
-    snaps: &[Snapshot],
-    kb: Option<Nav>,
-    focused: bool,
-    out: &mut Out,
-) {
-    let t = app.t.clone();
-    let Some(folder) = sel_folder else {
-        w::para(ui, RichText::new("Select a world to see its backups.").color(t.muted));
-        return;
-    };
+fn backup_pane(ui: &mut Ui, app: &mut App, w: &Pane, snaps: &[Snapshot], kb: Option<Nav>, back_up_key: bool, focused: bool, out: &mut Out) {
+    let t = app.look.tokens.clone();
+    ui.spacing_mut().item_spacing.y = 0.0;
     let s = &mut app.worlds;
     let pos = s.backup.as_ref().and_then(|d| snaps.iter().position(|x| &x.dir == d));
     let mut scroll = false;
@@ -460,62 +575,57 @@ fn backup_list(
     }
     let key = |n: Nav| kb == Some(n);
     let picked = s.backup.as_ref().and_then(|d| snaps.iter().find(|x| &x.dir == d)).cloned();
-    let mut back_up = false;
-    ui.horizontal_wrapped(|ui| {
-        // Back up now: from either pane, like the other world buttons.
-        if let Some(wd) = sel
-            && (w::button(ui, "back up now").clicked() || key(Nav::Add))
-        {
-            back_up = true;
-            let _ = wd;
-        }
-        if let Some(snap) = &picked {
-            if w::button(ui, "restore…").clicked() || key(Nav::Activate) {
-                let body = if sel.is_some() {
-                    format!("Put “{folder}” back as it was on {}? The world as it is now is backed up first.", snap.when())
-                } else {
-                    format!("Bring “{folder}” back as it was on {}?", snap.when())
-                };
-                app.modal = Some(Modal::Confirm(Confirm { title: "restore world".into(), body, button: "restore".into(), action: ConfirmAction::RestoreWorld(inst.id.clone(), snap.clone()) }));
-            }
-            if w::button(ui, "folder").clicked() || key(Nav::Folder) {
-                super::open_path(&snap.dir);
-            }
-            if w::danger_button(ui, &t, "delete…").clicked() || key(Nav::Delete) {
-                app.modal = Some(Modal::Confirm(Confirm {
-                    title: "delete backup".into(),
-                    body: format!("Permanently delete the backup of “{folder}” from {}?", snap.when()),
-                    button: "delete".into(),
-                    action: ConfirmAction::DeleteBackup(snap.clone()),
-                }));
-            }
-        }
-    });
-    if back_up && let Some(wd) = sel {
-        match worlds_busy(app, inst) {
-            Some(why) => app.toast(ToastKind::Error, format!("Can't back up while {why}")),
-            None => {
-                let (dir, i, name) = (wd.dir.clone(), inst.clone(), wd.name.clone());
-                let rt = app.rt.clone();
-                app.worlds.start(&rt, ui.ctx(), inst, "back up", format!("Backing up {name}"), move || {
-                    backups::snapshot_world(&dir, Owner::of(&i), "backed up by hand", false)?;
-                    Ok(JobDone { select: None, note: Some(format!("Backed up {name}")) })
-                });
-            }
+    let name = w.sel.map(|wd| wd.name.as_str()).or(w.sel_folder).unwrap_or_default();
+    let mut buttons = Vec::new();
+    if w.sel.is_some() {
+        buttons.push(kit::Button::new("back up now"));
+    }
+    let first_snap = buttons.len();
+    if picked.is_some() {
+        buttons.extend([kit::Button::new("restore"), kit::Button::new("delete"), kit::Button::new("folder")]);
+    }
+    let (clicked, _) = content::pane_head(ui, &t, 2, "backups", name, &buttons, out.head_h);
+    if let Some(wd) = w.sel
+        && (clicked == Some(0) || back_up_key)
+    {
+        out.act = Some(Act::BackUp(wd.clone()));
+    }
+    if let (Some(snap), Some(folder)) = (&picked, w.sel_folder) {
+        let pick = |i: usize| clicked == Some(first_snap + i);
+        if pick(0) || key(Nav::Activate) {
+            out.act = Some(Act::Restore(folder.to_string(), snap.clone()));
+        } else if pick(1) || key(Nav::Delete) {
+            out.act = Some(Act::DeleteBackup(folder.to_string(), snap.clone()));
+        } else if pick(2) || key(Nav::Folder) {
+            out.act = Some(Act::Folder(snap.dir.clone()));
         }
     }
-    ui.add_space(6.0);
+    let Some(folder) = w.sel_folder else {
+        padded(ui, |ui| {
+            ui.add_space(tk::GUTTER);
+            kit::body_muted(ui, &t, "Select a world to see its backups.");
+        });
+        return;
+    };
+    if snaps.is_empty() {
+        padded(ui, |ui| {
+            ui.add_space(tk::GUTTER);
+            kit::body_muted(ui, &t, "No backups yet. One is taken whenever a game it was played in exits, and you can back it up now.");
+        });
+        return;
+    }
+    let cols = [kit::Column::fixed("taken", tk::BACKUP_WHEN_WIDTH), kit::Column::fill("why"), kit::Column::fixed("kind", tk::BACKUP_KIND_WIDTH)];
+    kit::table::header(ui, &t, &cols);
     let s = &mut app.worlds;
     egui::ScrollArea::vertical().id_salt("backups").auto_shrink(false).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        if snaps.is_empty() {
-            w::para(ui, RichText::new("No backups yet. One is taken whenever a game you played it in exits.").color(t.muted));
-        }
+        ui.spacing_mut().item_spacing.y = 0.0;
         for snap in snaps {
             let on = s.backup.as_ref() == Some(&snap.dir);
-            let r = w::rich_row(ui, &t, on, w::Lead::Glyph("\u{f006f}"), &snap.when(), &snap.info.reason, if snap.info.auto { "auto" } else { "" });
+            let kind = if snap.info.auto { "auto" } else { "kept" };
+            let cells = [kit::Cell::Figure(snap.when()), kit::Cell::Muted(snap.info.reason.clone()), kit::Cell::Caption(kind.into(), None)];
+            let r = kit::table::row(ui, &t, &cols, &cells, on);
             if on && focused {
-                w::focus_mark(ui, &t, r.rect);
+                kit::table::mark(ui, &t, r.rect);
             }
             if on && scroll {
                 r.scroll_to_me(None);
@@ -523,6 +633,9 @@ fn backup_list(
             if r.clicked() {
                 s.backup = Some(snap.dir.clone());
                 out.to_side = true;
+            }
+            if r.double_clicked() {
+                out.act = Some(Act::Restore(folder.to_string(), snap.clone()));
             }
         }
     });

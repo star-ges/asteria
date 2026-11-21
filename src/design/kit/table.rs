@@ -127,3 +127,8 @@ pub fn row(ui: &mut Ui, t: &Tokens, columns: &[Column], cells: &[Cell], selected
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &label));
     resp
 }
+
+/// The keyboard is on this row (its pane has the keys): the accent marker at its left edge.
+pub fn mark(ui: &Ui, t: &Tokens, rect: Rect) {
+    ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(tk::MARKER, rect.height())), 0.0, t.accent);
+}

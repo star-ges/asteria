@@ -436,9 +436,9 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
     super::mod_sets::banner(app, ui, inst);
     sections(app, ui);
     ui.spacing_mut().item_spacing.y = spacing;
-    // The content panes run to the page's edges (their rows reach the line between them);
-    // everything else sits on the gutter.
-    let side = if app.inst_tab.content_kind().is_some() || app.inst_tab == InstTab::Config { 0.0 } else { tk::GUTTER };
+    // Panes with heads and hover lists run to the page's edges (their rules and rows reach the
+    // lines); the overview sits on the gutter.
+    let side = if app.inst_tab == InstTab::Overview { tk::GUTTER } else { 0.0 };
     egui::Frame::new().inner_margin(egui::Margin { left: side as i8, right: side as i8, top: tk::GAP as i8, bottom: tk::GAP as i8 }).show(ui, |ui| {
         // Files dropped now go into this tab's folder: its pane is what the drop hint frames.
         app.drop_rect = Some(ui.available_rect_before_wrap().expand2(vec2(side, tk::GAP)));

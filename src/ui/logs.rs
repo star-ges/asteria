@@ -1,27 +1,27 @@
 //! The running game's output, and past logs and crash reports, with what a crash
-//! analysis ([`crate::crash`]) makes of them.
+//! analysis ([`crate::crash`]) makes of them. Logs are for reading, so they're quiet: raw lines
+//! in JetBrains Mono (an approved exception) in a 1px frame, the level as a caption in a narrow
+//! column, errors in clay and warnings in ochre.
 
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use egui::{Align, Layout, RichText, Stroke, TextWrapMode, Ui};
+use egui::{Color32, Rect, Ui, vec2};
 
+use super::content::{self, padded};
 use super::widgets as w;
 use super::nav::{Nav, Zone};
 use super::{App, ToastKind};
 use crate::crash::{Analysis, Confidence};
+use crate::design::fonts;
+use crate::design::kit;
+use crate::design::tokens::{self as tk, Tokens};
 use crate::instance::Instance;
 use crate::keymap::Action;
 use crate::launch::{self, LogLevel, LogLine};
 use crate::task::Promise;
-use crate::design::Theme;
-
-/// A crashed game, glyph for crash reports and the crash notice.
-const CRASH: &str = "\u{f015a}";
-/// A cause that isn't a mod.
-const ALERT: &str = "\u{f0026}";
 
 /// Where the log view should go: a line (in the unfiltered log) to scroll to and mark.
 #[derive(Clone, Copy, Default)]
@@ -31,48 +31,77 @@ pub struct Mark {
     pub jump: bool,
 }
 
-/// Scrolling, level-coloured log lines in a dark well.
-/// `scroll` comes from the keyboard; `focused` outlines the well. `mark` is an index into `lines`.
-pub fn render_lines(ui: &mut Ui, t: &Theme, lines: &[&LogLine], stick_to_bottom: bool, scroll: Option<Nav>, focused: bool, mark: Mark) {
-    let row_h = t.body_size() + 4.0;
-    let stroke = if focused { Stroke::new(1.0, t.accent) } else { Stroke::new(1.0, t.fg_a(0.10)) };
-    egui::Frame::new().fill(t.bg_dark).stroke(stroke).inner_margin(8).show(ui, |ui| {
-        let page = ui.available_height() * 0.9;
-        let mut area = egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(stick_to_bottom);
-        if let (Some(l), true) = (mark.line, mark.jump) {
-            // A few lines of context above the marked one.
-            area = area.vertical_scroll_offset((l.saturating_sub(4)) as f32 * row_h);
+/// A level's caption and its text colour.
+fn level_style(t: &Tokens, level: LogLevel) -> (&'static str, Color32, Color32) {
+    match level {
+        LogLevel::Launcher => ("asteria", t.text_strong, t.text_strong),
+        LogLevel::Info => ("", t.text_muted, t.text_strong),
+        LogLevel::Warn => ("warn", t.warning(), t.warning()),
+        LogLevel::Error => ("error", t.error(), t.error()),
+        LogLevel::Debug => ("", t.text_muted, t.text_muted),
+    }
+}
+
+/// Log lines in a 1px frame filling the rest of the pane (accent while it has the keyboard),
+/// virtualised: only the rows on screen are laid out. Each row: the level as a caption in a
+/// narrow column, then the line in JetBrains Mono, clipped. `scroll` comes from the keyboard;
+/// `mark` is an index into `lines`, washed and marked at its left edge.
+pub fn render_lines(ui: &mut Ui, t: &Tokens, lines: &[&LogLine], stick_to_bottom: bool, scroll: Option<Nav>, focused: bool, mark: Mark) {
+    let row_h = tk::LOG_LINE_HEIGHT;
+    let frame_c = if focused { t.accent } else { t.line_strong };
+    let outer = ui.available_rect_before_wrap();
+    let outer = Rect::from_min_max(egui::pos2(outer.left() + tk::GUTTER, outer.top()), egui::pos2(outer.right() - tk::GUTTER, outer.bottom() - tk::GAP));
+    ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
+    let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(outer.shrink(tk::LINE)).layout(egui::Layout::top_down(egui::Align::Min)));
+    let page = outer.height() * 0.9;
+    let mut area = egui::ScrollArea::vertical().id_salt("log-lines").auto_shrink(false).stick_to_bottom(stick_to_bottom);
+    if let (Some(l), true) = (mark.line, mark.jump) {
+        // A few lines of context above the marked one.
+        area = area.vertical_scroll_offset((l.saturating_sub(4)) as f32 * row_h);
+    }
+    area.show_rows(&mut inner, row_h, lines.len(), |ui, range| {
+        if let Some(d) = scroll.and_then(|n| n.scroll_delta(row_h, page)) {
+            ui.scroll_with_delta(vec2(0.0, d));
         }
-        area.show_rows(ui, row_h, lines.len(), |ui, range| {
-            if let Some(d) = scroll.and_then(|n| n.scroll_delta(row_h, page)) {
-                ui.scroll_with_delta(egui::vec2(0.0, d));
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let font = fonts::raw(tk::SIZE_MONO);
+        for (i, line) in lines[range.clone()].iter().enumerate() {
+            let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), egui::Sense::hover());
+            let p = ui.painter_at(rect);
+            if mark.line == Some(range.start + i) {
+                p.rect_filled(rect, 0.0, t.wash(0.08));
+                p.rect_filled(Rect::from_min_size(rect.min, vec2(tk::MARKER, rect.height())), 0.0, t.accent);
             }
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for (i, line) in lines[range.clone()].iter().enumerate() {
-                let color = match line.level {
-                    LogLevel::Launcher => t.accent,
-                    LogLevel::Info => t.fg,
-                    LogLevel::Warn => t.yellow,
-                    LogLevel::Error => t.red,
-                    LogLevel::Debug => t.muted,
-                };
-                let text = RichText::new(line.text.replace('\t', "    ")).color(color).size(t.body_size() - 1.0);
-                let r = ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), row_h), Layout::left_to_right(Align::Center), |ui| {
-                    ui.add(egui::Label::new(text).wrap_mode(TextWrapMode::Truncate))
-                });
-                if mark.line == Some(range.start + i) {
-                    let rect = r.response.rect.expand2(egui::vec2(8.0, 0.0));
-                    ui.painter().rect_filled(rect, 0.0, t.fg_a(0.08));
-                    w::focus_mark(ui, t, rect);
-                }
+            let (cap, cap_c, text_c) = level_style(t, line.level);
+            if !cap.is_empty() {
+                kit::text::paint_caption(&p, egui::pos2(rect.left() + tk::GAP, rect.center().y), cap, cap_c);
             }
-        });
+            let x = rect.left() + tk::GAP + tk::LOG_LEVEL_WIDTH;
+            let mut job = egui::text::LayoutJob::simple_singleline(line.text.replace('\t', "    "), font.clone(), text_c);
+            job.wrap = egui::text::TextWrapping::truncate_at_width((rect.right() - tk::GAP - x).max(0.0));
+            let g = p.layout_job(job);
+            p.galley(egui::pos2(x, rect.center().y - g.size().y / 2.0), g, text_c);
+        }
     });
+    kit::rule::frame(ui.painter(), outer, frame_c);
 }
 
 fn filtered<'a>(lines: impl Iterator<Item = &'a LogLine>, filter: &str) -> Vec<&'a LogLine> {
     let f = filter.trim().to_lowercase();
     lines.filter(|l| f.is_empty() || l.text.to_lowercase().contains(&f)).collect()
+}
+
+/// A headline as a sentence: its first letter capitalised.
+fn sentence(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
+
+/// The filter as a query line, on the gutter, with room above and below.
+fn filter_line(ui: &mut Ui, t: &Tokens, value: &mut String, focus: bool) {
+    ui.add_space(tk::GAP);
+    padded(ui, |ui| kit::query(ui, t, value, "filter", tk::SIZE_HEADING, focus));
+    ui.add_space(tk::GAP);
 }
 
 /// A game that crashed, for the notice in its log tab.
@@ -84,81 +113,43 @@ pub struct Notice {
 }
 
 pub fn live(app: &mut App, ui: &mut Ui, inst: &Instance) {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
+    ui.spacing_mut().item_spacing.y = 0.0;
     let why = app.logs.key.take() == Some(Action::Why);
+    // A crash holds the top of the tab until it's looked at or dismissed.
     if let Some(n) = app.logs.notices.get(&inst.id).cloned() {
-        let mut see = why;
-        let mut dismiss = false;
-        crash_banner(ui, &t, &n.headline, &mut see, &mut dismiss);
-        if see {
+        let clicked = kit::banner(ui, &t, "game crashed", Some(t.error()), &sentence(&n.headline), &[kit::Button::new("see why"), kit::Button::new("dismiss")]);
+        if why || clicked == Some(0) {
             app.logs.show_analysis(&n.path);
             app.inst_tab = super::instances::InstTab::LogHistory;
             app.focus = Zone::Side;
         }
-        if dismiss {
+        if clicked == Some(1) {
             app.logs.notices.remove(&inst.id);
         }
-        ui.add_space(8.0);
     }
     let Some(session) = app.sessions.get(&inst.id) else {
-        w::empty_state(ui, &t, "\u{f018d}", "not running", "Press play to see the game's output here. Earlier runs are in log history.");
+        content::pane_head(ui, &t, 1, "live", "not running", &[], 0.0);
+        padded(ui, |ui| kit::empty_state(ui, &t, "Not running", "Press play to see the game's output here. Earlier runs are in history.", None));
         return;
     };
     let log = session.log.clone();
     let lines = log.lock().unwrap().lines.clone();
     let kb = app.nav_for(Zone::Main);
     let focused = app.focus == Zone::Main;
-    let mut copy = kb == Some(Nav::Copy);
-    ui.horizontal(|ui| {
-        w::text_input(ui, &mut app.logs.live_filter, "filter", 220.0, kb == Some(Nav::Search));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            copy |= w::button(ui, "copy").clicked();
-            if w::button(ui, "clear").clicked() {
-                log.lock().unwrap().lines.clear();
-            }
-            ui.label(RichText::new(format!("{} lines", lines.len())).color(t.muted));
-        });
-    });
-    ui.add_space(4.0);
+    let aside = if lines.len() == 1 { "1 line".to_string() } else { format!("{} lines", lines.len()) };
+    let (clicked, _) = content::pane_head(ui, &t, 1, "live", &aside, &[kit::Button::new("copy"), kit::Button::new("clear")], 0.0);
+    let copy = kb == Some(Nav::Copy) || clicked == Some(0);
+    if clicked == Some(1) {
+        log.lock().unwrap().lines.clear();
+    }
+    filter_line(ui, &t, &mut app.logs.live_filter, kb == Some(Nav::Search));
     let shown = filtered(lines.iter(), &app.logs.live_filter);
     if copy {
         ui.ctx().copy_text(shown.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n"));
         app.toast(ToastKind::Info, "Log copied");
     }
     render_lines(ui, &t, &shown, true, kb, focused, Mark::default());
-}
-
-/// "game crashed · likely cause: Sodium 0.5.8   [see why] [dismiss]"
-fn crash_banner(ui: &mut Ui, t: &Theme, headline: &str, see: &mut bool, dismiss: &mut bool) {
-    egui::Frame::new().fill(Theme::alpha(t.red, 0.06)).stroke(Stroke::new(1.0, Theme::alpha(t.red, 0.45))).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
-        // Too narrow for the headline beside the buttons: it wraps on its own line, buttons below.
-        if ui.available_width() - w::buttons_width(ui, &["dismiss", "see why"]) >= 260.0 {
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    *dismiss |= w::button(ui, "dismiss").clicked();
-                    *see |= w::button(ui, "see why").clicked();
-                    ui.add_space(8.0);
-                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        ui.label(RichText::new(CRASH).color(t.red));
-                        ui.label(RichText::new("game crashed").color(t.fg_light));
-                        ui.label(RichText::new("·").color(t.muted));
-                        ui.add(egui::Label::new(RichText::new(headline).color(t.fg)).truncate());
-                    });
-                });
-            });
-        } else {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(CRASH).color(t.red));
-                ui.label(RichText::new("game crashed").color(t.fg_light));
-            });
-            w::para(ui, RichText::new(headline).color(t.fg));
-            ui.add_space(4.0);
-            ui.horizontal_wrapped(|ui| {
-                *see |= w::button(ui, "see why").clicked();
-                *dismiss |= w::button(ui, "dismiss").clicked();
-            });
-        }
-    });
 }
 
 // -- history --------------------------------------------------------------------
@@ -188,9 +179,6 @@ struct Panel {
     all: bool,
     hidden: bool,
 }
-
-/// Suspects listed before "n more".
-const SHOWN: usize = 4;
 
 #[derive(Default)]
 pub struct LogsState {
@@ -313,10 +301,18 @@ fn read_log(path: &Path) -> anyhow::Result<(String, bool)> {
     Ok((String::from_utf8_lossy(&bytes).into_owned(), crash))
 }
 
+/// A crash report's line: the exception and its stack are errors, the rest (the report's
+/// details) plain, so the level column marks what went wrong rather than every line.
+fn crash_level(line: &str) -> LogLevel {
+    let t = line.trim_start();
+    let thrown = t.split([':', ' ']).next().is_some_and(|w| w.contains('.') && (w.ends_with("Exception") || w.ends_with("Error")));
+    if t.starts_with("at ") || t.starts_with("Caused by:") || thrown || line.starts_with("Description:") { LogLevel::Error } else { launch::classify(line, false) }
+}
+
 /// Read a log and, if it shows a crash, analyse it (reads the instance's jars).
 fn load(path: &Path, inst: &Instance, default_memory_mb: u32) -> anyhow::Result<Loaded> {
     let (text, crash) = read_log(path)?;
-    let lines = text.lines().map(|l| LogLine { level: if crash { LogLevel::Error } else { launch::classify(l, false) }, text: l.to_string() }).collect();
+    let lines = text.lines().map(|l| LogLine { level: if crash { crash_level(l) } else { launch::classify(l, false) }, text: l.to_string() }).collect();
     let analysis = (crash || crate::crash::looks_crashed(&text)).then(|| crate::crash::analyze(inst, default_memory_mb, &text));
     Ok(Loaded { lines, analysis })
 }
@@ -326,7 +322,7 @@ fn modified_label(m: Option<SystemTime>) -> String {
 }
 
 pub fn history(app: &mut App, ui: &mut Ui, inst: &Instance) {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let mem = app.cfg.default_memory_mb;
     // Mods can't be switched while a job has them, as the game starts, or while a search for the breaking mod does.
     let mods_busy = super::mod_sets::busy(app, inst).by_hand();
@@ -347,8 +343,10 @@ pub fn history(app: &mut App, ui: &mut Ui, inst: &Instance) {
     let view_nav = app.nav_for(Zone::Side);
     let focus = app.focus;
     let s = &mut app.logs;
+    ui.spacing_mut().item_spacing.y = 0.0;
     if files.is_empty() {
-        w::empty_state(ui, &t, "\u{f0219}", "no logs yet", "Minecraft writes logs and crash reports here after it runs.");
+        content::pane_head(ui, &t, 1, "history", "", &[], 0.0);
+        padded(ui, |ui| kit::empty_state(ui, &t, "No logs yet", "Minecraft writes logs and crash reports here after it runs.", None));
         return;
     }
     if s.selected.is_none() {
@@ -389,72 +387,121 @@ pub fn history(app: &mut App, ui: &mut Ui, inst: &Instance) {
         }
     }
     let focus = app.focus;
+    let mut out = Out::default();
+    if ui.available_width() < tk::CONTENT_TWO_PANES {
+        // Too narrow for both: one pane at a time, the one with the keyboard (h/l still switch).
+        let mut side = focus == Zone::Side;
+        padded(ui, |ui| ui.horizontal(|ui| kit::segmented(ui, &t, &mut side, &[(false, "files"), (true, "log")])));
+        ui.add_space(tk::GAP);
+        if side {
+            reader(app, ui, &files, &sel, view_nav, mods_busy, &mut out);
+            out.to_side |= focus != Zone::Side;
+        } else {
+            file_list(ui, &t, &mut app.logs, &files, &sel, focus == Zone::Main, scroll, &mut out);
+            out.to_main |= focus == Zone::Side;
+        }
+    } else {
+        let list_w = (ui.available_width() * tk::LOG_FILES_SHARE).clamp(tk::LOG_FILES_MIN, tk::LOG_FILES_MAX);
+        let (mut left, mut right) = content::panes(ui, &t, list_w);
+        file_list(&mut left, &t, &mut app.logs, &files, &sel, focus == Zone::Main, scroll, &mut out);
+        reader(app, &mut right, &files, &sel, view_nav, mods_busy, &mut out);
+    }
+    let key = |n: Nav| list_nav == Some(n);
+    if key(Nav::Activate) {
+        super::open_url(&sel.display().to_string());
+    }
+    if key(Nav::Folder) {
+        super::open_path(sel.parent().unwrap());
+    }
+    if out.to_main {
+        app.focus = Zone::Main;
+    }
+    if out.to_side {
+        app.focus = Zone::Side;
+    }
+    if let Some(p) = out.panel {
+        let a = app.logs.analysis().cloned();
+        if let Some(a) = a {
+            act(app, ui.ctx(), inst, &a, p);
+        }
+    }
+}
+
+/// What the history's panes ask of the app after drawing.
+#[derive(Default)]
+struct Out {
+    to_main: bool,
+    to_side: bool,
+    head_h: f32,
+    panel: Option<PanelOut>,
+}
+
+/// The logs and crash reports, newest first, as a compact hover list.
+#[allow(clippy::too_many_arguments)]
+fn file_list(ui: &mut Ui, t: &Tokens, s: &mut LogsState, files: &[LogFile], sel: &Path, focused: bool, scroll: bool, out: &mut Out) {
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let (_, h) = content::pane_head(ui, t, 1, "files", &files.len().to_string(), &[], 0.0);
+    out.head_h = h;
+    egui::ScrollArea::vertical().id_salt("log-files").auto_shrink(false).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let mut list = kit::HoverList::begin(ui, kit::Variant::Compact).indent(tk::GUTTER + tk::HOVER_SHIFT_COMPACT);
+        for f in files {
+            let on = f.path == sel;
+            let desc = format!("{} · {}", modified_label(f.modified), w::size_label(f.size));
+            let mut row = kit::HoverRow::new(("log-file", &f.path), &f.name).description(&desc).selected(on).hot(on && focused);
+            if f.crash {
+                row = row.badge("crash", t.error());
+            }
+            let r = list.row(ui, t, row);
+            if on && scroll {
+                r.scroll_to_me(None);
+            }
+            if r.clicked() {
+                s.selected = Some(f.path.clone());
+                out.to_main = true;
+            }
+            if r.double_clicked() {
+                super::open_url(&f.path.display().to_string());
+            }
+        }
+        list.end(ui);
+    });
+}
+
+/// The selected log: its head, the filter, the crash analysis when it shows a crash, then its lines.
+#[allow(clippy::too_many_arguments)]
+fn reader(app: &mut App, ui: &mut Ui, files: &[LogFile], sel: &Path, kb: Option<Nav>, mods_busy: Option<&str>, out: &mut Out) {
+    let t = app.look.tokens.clone();
+    let focus = app.focus;
     let s = &mut app.logs;
+    ui.spacing_mut().item_spacing.y = 0.0;
     let panel_keys = s.panel_focused() && focus == Zone::Side;
-    let (panel_nav, view_nav) = if panel_keys { (view_nav, None) } else { (None, view_nav) };
-    let key = |n: Nav| list_nav == Some(n) || view_nav == Some(n);
-
-    let mut clicked = false;
-    // Narrow windows give the list less, so the log keeps room to read.
-    let list_w = (ui.available_width() * 0.36).clamp(190.0, 260.0);
-    egui::Panel::left("log-files").exact_size(list_w).resizable(false).frame(egui::Frame::new().inner_margin(egui::Margin { right: 12, ..Default::default() })).show(ui, |ui| {
-        egui::ScrollArea::vertical().id_salt("log-files").auto_shrink(false).show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 1.0;
-            for f in &files {
-                let on = f.path == sel;
-                let sub = format!("{}  ·  {}", modified_label(f.modified), w::size_label(f.size));
-                let glyph = if f.crash { CRASH } else { "\u{f0219}" };
-                let r = w::rich_row(ui, &t, on, w::Lead::Glyph(glyph), &f.name, &sub, "");
-                if on && focus == Zone::Main {
-                    w::focus_mark(ui, &t, r.rect);
-                }
-                if on && scroll {
-                    r.scroll_to_me(None);
-                }
-                if r.clicked() {
-                    s.selected = Some(f.path.clone());
-                    clicked = true;
-                }
-            }
-        });
-    });
-
-    let mut copy = key(Nav::Copy);
-    // Buttons first (right to left), then the filter in what's left, never wider than 220; on its own line below
-    // them when there's too little left.
-    let why_button = has_analysis && s.panel.hidden;
-    let mut labels = vec!["copy", "open", "folder"];
+    let (panel_nav, view_nav) = if panel_keys { (kb, None) } else { (None, kb) };
+    let key = |n: Nav| view_nav == Some(n);
+    let file = files.iter().find(|f| f.path == sel);
+    let name = file.map_or_else(String::new, |f| f.name.clone());
+    let why_button = s.analysis().is_some() && s.panel.hidden;
+    let mut buttons = Vec::new();
     if why_button {
-        labels.push("why it crashed");
+        buttons.push(kit::Button::new("why it crashed"));
     }
-    let filter_below = ui.available_width() - w::buttons_width(ui, &labels) < 140.0;
-    ui.horizontal(|ui| {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            copy |= w::button(ui, "copy").clicked();
-            if w::button(ui, "open").clicked() || key(Nav::Activate) {
-                super::open_url(&sel.display().to_string());
-            }
-            if w::button(ui, "folder").clicked() || key(Nav::Folder) {
-                super::open_path(sel.parent().unwrap());
-            }
-            if why_button && w::button(ui, "why it crashed").clicked() {
-                s.panel.hidden = false;
-            }
-            if !filter_below {
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    let width = (ui.available_width() - 16.0).min(220.0);
-                    w::text_input(ui, &mut s.filter, "filter", width, key(Nav::Search));
-                });
-            }
-        });
-    });
-    if filter_below {
-        ui.add_space(4.0);
-        w::text_input(ui, &mut s.filter, "filter", ui.available_width() - 16.0, key(Nav::Search));
+    let first = buttons.len();
+    buttons.extend([kit::Button::new("open"), kit::Button::new("folder"), kit::Button::new("copy")]);
+    let aside = if file.is_some_and(|f| f.crash) { "crash report" } else { "" };
+    let (clicked, _) = content::pane_head(ui, &t, 2, &name, aside, &buttons, out.head_h);
+    let pick = |i: usize| clicked == Some(first + i);
+    if why_button && clicked == Some(0) {
+        s.panel.hidden = false;
     }
-    ui.add_space(6.0);
+    if pick(0) || key(Nav::Activate) {
+        super::open_url(&sel.display().to_string());
+    }
+    if pick(1) || key(Nav::Folder) {
+        super::open_path(sel.parent().unwrap());
+    }
+    let copy = pick(2) || key(Nav::Copy);
+    filter_line(ui, &t, &mut s.filter, key(Nav::Search));
 
-    let mut out = PanelOut::default();
     if let Some(a) = s.analysis().cloned().filter(|_| !s.panel.hidden) {
         // The selected suspect's Modrinth page, looked up once by hash.
         let sel_sha = a.suspects.get(s.panel.selected).and_then(|x| x.sha1.clone());
@@ -471,12 +518,17 @@ pub fn history(app: &mut App, ui: &mut Ui, inst: &Instance) {
             let h = sha.clone();
             s.page_p = Some((sha, Promise::spawn(&app.rt, ui.ctx(), crate::content_meta::lookup(vec![h]))));
         }
-        out = panel(ui, &t, &a, &mut s.panel, panel_nav, panel_keys, &s.pages, mods_busy);
-        ui.add_space(8.0);
-    }
-    if let Some(line) = out.jump {
-        s.filter.clear();
-        s.mark = Mark { line: Some(line), jump: true };
+        let o = panel(ui, &t, &a, &mut s.panel, panel_nav, panel_keys, &s.pages, mods_busy);
+        if o.click {
+            out.to_side = true;
+            s.panel.focused = true;
+        }
+        if let Some(line) = o.jump {
+            s.filter.clear();
+            s.mark = Mark { line: Some(line), jump: true };
+        }
+        out.panel = Some(o);
+        ui.add_space(tk::GAP);
     }
     let mark = s.mark;
     s.mark.jump = false;
@@ -488,24 +540,22 @@ pub fn history(app: &mut App, ui: &mut Ui, inst: &Instance) {
             }
             // A mark is a line of the whole log: only meaningful unfiltered.
             let mark = if s.filter.trim().is_empty() { mark } else { Mark::default() };
+            let r = ui.available_rect_before_wrap();
             render_lines(ui, &t, &shown, false, view_nav, focus == Zone::Side && !panel_keys, mark);
+            if ui.input(|i| i.pointer.primary_clicked()) && ui.rect_contains_pointer(r) {
+                s.panel.focused = false;
+                out.to_side = true;
+            }
         }
         Some((p, Err(e))) if *p == sel => {
-            w::para(ui, RichText::new(e).color(t.red));
+            padded(ui, |ui| kit::text::body_colored(ui, e, t.error()));
         }
         _ => {
-            ui.spinner();
+            padded(ui, |ui| kit::loading(ui, &t, "reading the log"));
         }
     }
     if copy {
         app.toast(ToastKind::Info, "Log copied");
-    }
-    if clicked {
-        app.focus = Zone::Main;
-    }
-    let a = app.logs.analysis().cloned();
-    if let Some(a) = a {
-        act(app, ui.ctx(), inst, &a, out);
     }
 }
 
@@ -517,6 +567,8 @@ struct PanelOut {
     page: Option<String>,
     copy: bool,
     bisect: bool,
+    /// Clicked: the panel takes the keyboard.
+    click: bool,
 }
 
 fn act(app: &mut App, ctx: &egui::Context, inst: &Instance, a: &Analysis, out: PanelOut) {
@@ -581,21 +633,23 @@ fn enabled_now(file: &Path) -> Option<bool> {
     }
 }
 
-fn confidence_color(t: &Theme, c: Confidence) -> egui::Color32 {
+fn confidence_color(t: &Tokens, c: Confidence) -> Color32 {
     match c {
-        Confidence::Certain => t.red,
-        Confidence::Likely => t.yellow,
-        Confidence::Possible => t.muted,
+        Confidence::Certain => t.error(),
+        Confidence::Likely => t.warning(),
+        Confidence::Possible => t.text_muted,
     }
 }
 
-/// The analysis: a headline, causes that aren't mods, then the suspects with their
-/// reasons; the selected suspect shows its evidence and actions.
+/// The analysis: a caption (how sure, what Minecraft says), the headline in large type (the
+/// mod's name in Melodrama when it names one), the actions joined, causes that aren't mods as
+/// bracketed paragraphs, then the suspects as a quiet table; the selected suspect's evidence
+/// follows it as quoted lines. Scrolls within at most half the pane.
 #[allow(clippy::too_many_arguments)]
-fn panel(ui: &mut Ui, t: &Theme, a: &Analysis, st: &mut Panel, kb: Option<Nav>, focused: bool, pages: &HashMap<String, Option<String>>, mods_busy: Option<&str>) -> PanelOut {
+fn panel(ui: &mut Ui, t: &Tokens, a: &Analysis, st: &mut Panel, kb: Option<Nav>, focused: bool, pages: &HashMap<String, Option<String>>, mods_busy: Option<&str>) -> PanelOut {
     let mut out = PanelOut::default();
     let n = a.suspects.len();
-    let shown = if st.all { n } else { n.min(SHOWN) };
+    let shown = if st.all { n } else { n.min(tk::CRASH_SUSPECTS_SHOWN) };
     if st.selected >= n.max(1) {
         st.selected = n.saturating_sub(1);
     }
@@ -603,7 +657,7 @@ fn panel(ui: &mut Ui, t: &Theme, a: &Analysis, st: &mut Panel, kb: Option<Nav>, 
     if let Some(nav) = kb {
         if let Some(p) = Some(nav).filter(|m| m.is_move()).and_then(|m| m.step(n, Some(st.selected))) {
             st.selected = p;
-            st.all |= p >= SHOWN;
+            st.all |= p >= tk::CRASH_SUSPECTS_SHOWN;
             scroll_sel = true;
         }
         match nav {
@@ -613,204 +667,203 @@ fn panel(ui: &mut Ui, t: &Theme, a: &Analysis, st: &mut Panel, kb: Option<Nav>, 
             _ => {}
         }
     }
-    let top = a.suspects.first().map(|s| s.confidence);
-    let tone = match (top, a.causes.is_empty()) {
-        (Some(Confidence::Certain), _) | (_, false) => t.red,
-        (Some(Confidence::Likely), _) => t.yellow,
-        _ => t.muted,
+    let top = a.suspects.first();
+    let certain = a.suspects.iter().filter(|s| s.confidence == Confidence::Certain).count();
+    // The headline names one mod: its name, large, under how sure that is.
+    let one = top.filter(|s| (s.confidence == Confidence::Certain && certain == 1) || (certain == 0 && a.causes.is_empty() && s.confidence == Confidence::Likely));
+    let tone = match (top.map(|s| s.confidence), a.causes.is_empty()) {
+        (Some(Confidence::Certain), _) | (_, false) => t.error(),
+        (Some(Confidence::Likely), _) => t.warning(),
+        _ => t.text_muted,
     };
-    let border = if focused { t.accent } else { Theme::alpha(tone, 0.45) };
-    let max_h = (ui.available_height() * 0.5).max(160.0);
-    egui::Frame::new().fill(t.fg_a(0.025)).stroke(Stroke::new(1.0, border)).inner_margin(egui::Margin::symmetric(14, 12)).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        // Headline, with the panel's actions laid out first so it never runs under them. When they'd leave the
-        // headline too little room, it gets a line of its own (wrapped) and the actions go underneath.
-        let labels: &[&str] = if a.crashed { &["hide", "copy summary", "find breaking mod"] } else { &["hide", "copy summary"] };
-        // Laid out right to left beside the headline, left to right under it: either way "hide" ends up last.
-        let actions = |ui: &mut Ui, st: &mut Panel, out: &mut PanelOut, order: &mut dyn Iterator<Item = &&str>| {
-            for l in order {
-                if w::button(ui, l).clicked() {
-                    match *l {
-                        "hide" => st.hidden = true,
-                        "copy summary" => out.copy = true,
-                        _ => out.bisect = true,
+    let max_h = (ui.available_height() * tk::CRASH_PANEL_SHARE).max(tk::TABLE_ROW_HEIGHT * 6.0);
+    let selected = a.suspects.get(st.selected);
+    let now = selected.and_then(|s| s.file.as_deref()).map(enabled_now);
+    egui::ScrollArea::vertical().id_salt("crash-analysis").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        padded(ui, |ui| {
+            let mut cap = vec![match one {
+                Some(s) => format!("{} cause", s.confidence.label()),
+                None => "crash analysis".to_string(),
+            }];
+            if let Some(d) = &a.description {
+                cap.push(format!("minecraft says: {d}"));
+            }
+            match n {
+                0 => {}
+                1 => cap.push("1 suspect".into()),
+                _ => cap.push(format!("{n} suspects")),
+            }
+            let mut job = kit::text::caption_job(&cap[0], tone);
+            if cap.len() > 1 {
+                job.append(&kit::text::caps(&format!(" · {}", cap[1..].join(" · "))), 0.0, egui::TextFormat { font_id: fonts::text(tk::SIZE_CAPTION), color: t.text_muted, extra_letter_spacing: tk::CAPTION_TRACKING, ..Default::default() });
+            }
+            job.wrap = egui::text::TextWrapping::truncate_at_width(ui.available_width());
+            ui.add(egui::Label::new(job).selectable(false));
+            ui.add_space(tk::UNIT);
+            match one {
+                Some(s) => kit::display(ui, t, &s.label(), tk::SIZE_DISPLAY_SMALL),
+                None => kit::heading(ui, t, &sentence(&a.headline())),
+            };
+            if n == 0 && a.causes.is_empty() {
+                ui.add_space(tk::UNIT);
+                kit::body_muted(ui, t, "Nothing in this log points at a mod. Finding it by elimination is the way: find breaking mod turns mods off half at a time.");
+            }
+            ui.add_space(tk::GAP);
+            // The actions: the selected suspect's first, then the analysis's.
+            let mut buttons = Vec::new();
+            let mut ids = Vec::new();
+            if let (Some(s), Some(now)) = (selected.filter(|s| s.file.is_some()), now) {
+                let label = if now == Some(false) { format!("enable {}", s.name) } else { format!("disable {}", s.name) };
+                ids.push((PanelAct::Toggle, label));
+            }
+            if selected.and_then(|s| s.sha1.as_ref()).and_then(|h| pages.get(h)).is_some_and(Option::is_some) {
+                ids.push((PanelAct::Page, "modrinth page".into()));
+            }
+            if a.crashed {
+                ids.push((PanelAct::Bisect, "find breaking mod".into()));
+            }
+            ids.push((PanelAct::Copy, "copy summary".into()));
+            ids.push((PanelAct::Hide, "hide".into()));
+            for (act, label) in &ids {
+                let on = *act != PanelAct::Toggle || (mods_busy.is_none() && now.flatten().is_some());
+                buttons.push(kit::Button::new(label).enabled(on));
+            }
+            ui.horizontal_wrapped(|ui| {
+                if let Some(i) = kit::button_row(ui, t, &buttons) {
+                    match ids[i].0 {
+                        PanelAct::Toggle => out.toggle = Some(st.selected),
+                        PanelAct::Page => out.page = selected.and_then(|s| s.sha1.as_ref()).and_then(|h| pages.get(h).cloned().flatten()),
+                        PanelAct::Bisect => out.bisect = true,
+                        PanelAct::Copy => out.copy = true,
+                        PanelAct::Hide => st.hidden = true,
                     }
                 }
+            });
+            // Why the switch can't be used now, said rather than hidden.
+            if ids.first().is_some_and(|(a, _)| *a == PanelAct::Toggle) {
+                let why = match (mods_busy, now.flatten()) {
+                    (Some(why), _) => Some(format!("mods can't be switched while {why}")),
+                    (_, None) => Some("it's not in the mods folder any more".to_string()),
+                    _ => None,
+                };
+                if let Some(why) = why {
+                    ui.add_space(tk::UNIT);
+                    kit::caption(ui, t, &why);
+                }
             }
-        };
-        let headline = RichText::new(a.headline()).font(crate::design::fonts::bold(t.body_size() + 1.0)).color(t.fg_light);
-        let glyph = RichText::new(CRASH).color(tone).size(t.body_size() + 2.0);
-        if ui.available_width() - w::buttons_width(ui, labels) >= 240.0 {
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    actions(ui, st, &mut out, &mut labels.iter());
-                    ui.add_space(8.0);
-                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        ui.label(glyph);
-                        ui.add_space(2.0);
-                        ui.add(egui::Label::new(headline).truncate());
-                    });
-                });
-            });
-        } else {
-            ui.horizontal_top(|ui| {
-                ui.label(glyph);
-                ui.add_space(2.0);
-                w::para(ui, headline);
-            });
-            ui.add_space(4.0);
-            ui.horizontal_wrapped(|ui| actions(ui, st, &mut out, &mut labels.iter().rev()));
-            ui.add_space(4.0);
-        }
-        let mut sub = Vec::new();
-        if let Some(d) = &a.description {
-            sub.push(format!("minecraft says: {}", d.to_lowercase()));
-        }
-        match n {
-            0 if a.causes.is_empty() => sub.push("nothing in this log points at a mod; finding it by elimination is the way".into()),
-            0 => {}
-            1 => sub.push("1 suspect".into()),
-            _ => sub.push(format!("{n} suspects")),
-        }
-        if !sub.is_empty() {
-            ui.add(egui::Label::new(RichText::new(sub.join("  ·  ")).color(t.muted)).truncate());
-        }
-        if a.causes.is_empty() && n == 0 {
-            return;
-        }
-        ui.add_space(10.0);
-        egui::ScrollArea::vertical().id_salt("crash-suspects").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 2.0;
-            let tag_w = t.body_size() * 6.5;
             let headline = a.headline();
             for c in &a.causes {
-                ui.horizontal_top(|ui| {
-                    tag(ui, t, tag_w, ALERT, "cause", t.orange);
-                    ui.vertical(|ui| {
-                        // The headline may already name it.
-                        if c.title != headline {
-                            ui.label(RichText::new(&c.title).font(crate::design::fonts::bold(t.body_size())).color(t.fg_light));
+                ui.add_space(tk::GUTTER);
+                // The headline may already name it.
+                let cap = if c.title == headline { "cause".to_string() } else { format!("cause · {}", c.title) };
+                kit::bracketed(ui, t, &cap, |ui| {
+                    kit::body(ui, t, &c.advice);
+                    for e in &c.evidence {
+                        if evidence_row(ui, t, e) {
+                            out.jump = Some(e.line);
                         }
-                        w::para(ui, RichText::new(&c.advice).color(t.fg));
-                        for e in &c.evidence {
+                    }
+                });
+            }
+            ui.add_space(tk::GUTTER);
+        });
+        if n == 0 {
+            return;
+        }
+        let cols = [kit::Column::fixed("how sure", tk::CRASH_CONFIDENCE_WIDTH), kit::Column::fill("mod"), kit::Column::fill("why")];
+        kit::table::header(ui, t, &cols);
+        for (i, s) in a.suspects.iter().enumerate().take(shown) {
+            let on = i == st.selected;
+            let cells = [kit::Cell::Caption(s.confidence.label().into(), Some(confidence_color(t, s.confidence))), kit::Cell::Text(s.label()), kit::Cell::Muted(s.reason.clone())];
+            let r = kit::table::row(ui, t, &cols, &cells, on);
+            if on && focused {
+                kit::table::mark(ui, t, r.rect);
+            }
+            if on && scroll_sel {
+                r.scroll_to_me(None);
+            }
+            if r.clicked() {
+                st.selected = i;
+                out.click = true;
+            }
+            if on {
+                ui.add_space(tk::GAP);
+                padded(ui, |ui| {
+                    kit::bracketed(ui, t, "evidence", |ui| {
+                        for e in &s.evidence {
                             if evidence_row(ui, t, e) {
                                 out.jump = Some(e.line);
                             }
                         }
+                        if s.evidence.is_empty() {
+                            kit::body_muted(ui, t, "From the jar itself, not the log.");
+                        }
                     });
                 });
-                ui.add_space(8.0);
+                ui.add_space(tk::GAP);
+                kit::rule(ui, t, false);
             }
-            for (i, s) in a.suspects.iter().enumerate().take(shown) {
-                let on = i == st.selected;
-                let r = suspect_row(ui, t, tag_w, s, on);
-                if on && focused {
-                    w::focus_mark(ui, t, r.rect);
-                }
-                if on && scroll_sel {
-                    r.scroll_to_me(None);
-                }
-                if r.clicked() {
-                    st.selected = i;
-                }
-                if on {
-                    ui.horizontal(|ui| {
-                        ui.add_space(tag_w + 8.0);
-                        ui.vertical(|ui| {
-                            for e in &s.evidence {
-                                if evidence_row(ui, t, e) {
-                                    out.jump = Some(e.line);
-                                }
-                            }
-                            if s.evidence.is_empty() {
-                                ui.label(RichText::new("from the jar itself, not the log").color(t.muted).size(t.body_size() - 1.0));
-                            }
-                            ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                if let Some(file) = &s.file {
-                                    let now = enabled_now(file);
-                                    let label = if now == Some(false) { "enable" } else { "disable" };
-                                    let b = ui.add_enabled(mods_busy.is_none() && now.is_some(), egui::Button::new(label));
-                                    let b = match (mods_busy, now) {
-                                        (Some(why), _) => b.on_disabled_hover_text(format!("not while {why}")),
-                                        (_, None) => b.on_disabled_hover_text("it's not in the mods folder any more"),
-                                        _ => b,
-                                    };
-                                    if b.clicked() {
-                                        out.toggle = Some(i);
-                                    }
-                                }
-                                if let Some(Some(id)) = s.sha1.as_ref().and_then(|h| pages.get(h))
-                                    && w::button(ui, "modrinth").clicked()
-                                {
-                                    out.page = Some(id.clone());
-                                }
-                            });
-                            ui.add_space(6.0);
-                        });
-                    });
-                }
-            }
-            if n > shown && ui.add(egui::Label::new(RichText::new(format!("{} more, less likely", n - shown)).color(t.muted)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        }
+        if n > shown {
+            let more = format!("{} more, less likely", n - shown);
+            let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), tk::TABLE_ROW_HEIGHT), egui::Sense::hover());
+            let g = kit::text::caption_galley(ui, &more, t.text_muted);
+            let lr = Rect::from_min_size(egui::pos2(rect.left() + tk::GUTTER, rect.center().y - g.size().y / 2.0), g.size());
+            if content::caption_link(ui, t, lr, "more-suspects", &more).clicked() {
                 st.all = true;
             }
-        });
+        }
     });
+    kit::rule(ui, t, true);
     out
 }
 
-/// A fixed-width confidence tag: "certain", "likely", "cause".
-fn tag(ui: &mut Ui, t: &Theme, width: f32, glyph: &str, label: &str, color: egui::Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, t.body_size() + 6.0), egui::Sense::hover());
-    let font = egui::FontId::monospace(t.body_size() - 1.0);
-    let text = if glyph.is_empty() { label.to_string() } else { format!("{glyph} {label}") };
-    ui.painter().text(rect.left_center(), egui::Align2::LEFT_CENTER, text, font, color);
+#[derive(Clone, Copy, PartialEq)]
+enum PanelAct {
+    Toggle,
+    Page,
+    Bisect,
+    Copy,
+    Hide,
 }
 
-/// One suspect: confidence, name and version, and the reason, on one clickable row.
-fn suspect_row(ui: &mut Ui, t: &Theme, tag_w: f32, s: &crate::crash::Suspect, on: bool) -> egui::Response {
-    let h = t.body_size() + 14.0;
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), egui::Sense::click());
-    if ui.is_rect_visible(rect) {
-        let p = ui.painter();
-        if on {
-            p.rect(rect, 0.0, t.fg_a(t.menu_selected_bg_alpha), Stroke::new(1.0, t.fg_a(t.menu_selected_border_alpha)), egui::StrokeKind::Inside);
-        } else if resp.hovered() {
-            p.rect_filled(rect, 0.0, t.fg_a(t.hover_fill_alpha * 0.6));
-        }
-        let size = t.body_size();
-        let cy = rect.center().y;
-        let x0 = rect.left() + 8.0;
-        p.text(egui::pos2(x0, cy), egui::Align2::LEFT_CENTER, s.confidence.label(), egui::FontId::monospace(size - 1.0), confidence_color(t, s.confidence));
-        let nx = x0 + tag_w;
-        // The name gets up to 45% of the row (all that's left when it's narrow), cut with an ellipsis.
-        let mut job = egui::text::LayoutJob::single_section(s.label(), egui::TextFormat { font_id: crate::design::fonts::bold(size), color: t.fg_light, ..Default::default() });
-        job.wrap = egui::text::TextWrapping { max_width: (rect.width() * 0.45).min(rect.right() - 8.0 - nx).max(0.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
-        let name = p.layout_job(job);
-        let name_w = name.size().x;
-        p.galley(egui::pos2(nx, cy - name.size().y / 2.0), name, t.fg_light);
-        let rx = nx + name_w + 14.0;
-        // The reason gets what's left of the row, cut with an ellipsis.
-        let mut job = egui::text::LayoutJob::single_section(s.reason.clone(), egui::TextFormat { font_id: egui::FontId::monospace(size - 1.0), color: t.fg, ..Default::default() });
-        job.wrap = egui::text::TextWrapping { max_width: (rect.right() - 8.0 - rx).max(0.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
-        if rect.right() - 8.0 - rx >= 40.0 {
-            let reason = p.layout_job(job);
-            p.galley(egui::pos2(rx, cy - reason.size().y / 2.0), reason, t.fg);
-        }
-    }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+/// A quoted log line (JetBrains Mono) with its number; clicking shows it in the log. Returns whether clicked.
+fn evidence_row(ui: &mut Ui, t: &Tokens, e: &crate::crash::Evidence) -> bool {
+    let font = fonts::raw(tk::SIZE_MONO);
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), tk::LOG_LINE_HEIGHT), egui::Sense::click());
+    let hot = resp.hovered() || resp.has_focus();
+    let num_c = crate::design::motion::color(ui.ctx(), resp.id.with("n"), hot, t.text_muted, t.accent);
+    let p = ui.painter_at(rect);
+    let num = p.layout_no_wrap(format!("{:>6}", e.line + 1), font.clone(), num_c);
+    let nw = num.size().x;
+    p.galley(egui::pos2(rect.left(), rect.center().y - num.size().y / 2.0), num, num_c);
+    let x = rect.left() + nw + tk::GAP;
+    let mut job = egui::text::LayoutJob::simple_singleline(e.text.replace('\t', "    "), font, t.text_strong);
+    job.wrap = egui::text::TextWrapping::truncate_at_width((rect.right() - x).max(0.0));
+    let g = p.layout_job(job);
+    p.galley(egui::pos2(x, rect.center().y - g.size().y / 2.0), g, t.text_strong);
+    let text = format!("line {}: {}", e.line + 1, e.text);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, &text));
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("show in the log").clicked()
 }
 
-/// A quoted log line with its number; clicking shows it in the log. Returns whether clicked.
-fn evidence_row(ui: &mut Ui, t: &Theme, e: &crate::crash::Evidence) -> bool {
-    let size = t.body_size() - 1.0;
-    let mut job = egui::text::LayoutJob::default();
-    let fmt = |c| egui::TextFormat { font_id: egui::FontId::monospace(size), color: c, ..Default::default() };
-    job.append(&format!("{:>6}  ", e.line + 1), 0.0, fmt(t.muted));
-    job.append(&e.text, 0.0, fmt(t.fg_a(0.75)));
-    let r = ui.add(egui::Label::new(job).truncate().sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("show in the log");
-    if r.hovered() {
-        ui.painter().hline(r.rect.x_range(), r.rect.bottom(), Stroke::new(1.0, t.fg_a(0.25)));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In a crash report only what went wrong is marked an error: the exception, its stack and
+    /// its causes, not every detail line, so the level column says something.
+    #[test]
+    fn crash_reports_mark_only_the_exception_and_its_stack() {
+        let error = |l: &str| crash_level(l) == LogLevel::Error;
+        assert!(error("java.lang.OutOfMemoryError: Java heap space"));
+        assert!(error("\tat net.minecraft.server.MinecraftServer.run(MinecraftServer.java:100)"));
+        assert!(error("Caused by: java.lang.NullPointerException"));
+        assert!(error("Description: Exception in server tick loop"));
+        assert!(!error("---- Minecraft Crash Report ----"));
+        assert!(!error("\tMinecraft Version: 1.21.11"));
+        assert!(!error("\tMemory: 19639896 bytes (18 MiB)"));
+        assert!(!error("A detailed walkthrough of the error, its code path and all known details is as follows:"));
     }
-    r.clicked()
 }

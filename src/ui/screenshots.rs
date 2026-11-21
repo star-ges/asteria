@@ -1,20 +1,28 @@
-//! Screenshot grid: the instance's own, or every instance's with each one's name
-//! under it. The folders are listed and thumbnails decoded off the UI thread.
+//! Screenshots as a tile grid sharing its hairlines: the instance's own, or every instance's
+//! with each one's name in its caption. Choosing one opens it inside the section (it takes over
+//! the grid, crossfading as you step). The folders are listed and pictures decoded off the UI
+//! thread.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use egui::{CornerRadius, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Ui, vec2};
+use egui::{Rect, TextureHandle, Ui, vec2};
 
-use super::widgets as w;
+use super::content::padded;
 use super::nav::{Nav, Zone};
+use crate::design::kit::{self, tiles};
+use crate::design::tokens::{self as tk, Tokens};
+use crate::design::glyphs;
 use super::{App, Confirm, ConfirmAction, Modal, ToastKind};
 use crate::instance::Instance;
 use crate::task::Promise;
 
 const MAX_DECODING: usize = 4;
+/// Thumbnails fit in this; the picture opened large in this.
+const THUMB_SIZE: (u32, u32) = (480, 270);
+const VIEW_SIZE: (u32, u32) = (2560, 1440);
 
 enum Thumb {
     Loading,
@@ -45,7 +53,14 @@ pub struct ShotsState {
     fetched: Option<Instant>,
     loading: Option<(Scope, Promise<Vec<Shot>>)>,
     thumbs: Arc<Mutex<HashMap<PathBuf, Thumb>>>,
+    /// Pictures decoded for the viewer, dropped when it closes.
+    large: Arc<Mutex<HashMap<PathBuf, Thumb>>>,
     selected: Option<PathBuf>,
+    /// The picture opened inside the section, if any.
+    viewing: Option<PathBuf>,
+    /// The one shown before it (crossfading out), and a count of changes (the fade's id).
+    previous: Option<PathBuf>,
+    changes: u64,
 }
 
 impl ShotsState {
@@ -83,30 +98,58 @@ impl ShotsState {
     }
 
     fn thumb(&self, path: &Path, ctx: &egui::Context, rt: &tokio::runtime::Handle) -> Option<TextureHandle> {
-        let mut thumbs = self.thumbs.lock().unwrap();
-        match thumbs.get(path) {
-            Some(Thumb::Ready(tex)) => return Some(tex.clone()),
-            Some(_) => return None,
-            None => {}
-        }
-        if thumbs.values().filter(|t| matches!(t, Thumb::Loading)).count() >= MAX_DECODING {
-            ctx.request_repaint_after(Duration::from_millis(50));
-            return None;
-        }
-        thumbs.insert(path.to_path_buf(), Thumb::Loading);
-        let (path, slot, ctx) = (path.to_path_buf(), self.thumbs.clone(), ctx.clone());
-        rt.spawn_blocking(move || {
-            let result = image::open(&path).map(|img| {
-                let small = img.thumbnail(480, 270).to_rgba8();
-                let size = [small.width() as usize, small.height() as usize];
-                let color = egui::ColorImage::from_rgba_unmultiplied(size, small.as_raw());
-                ctx.load_texture(path.display().to_string(), color, egui::TextureOptions::LINEAR)
-            });
-            slot.lock().unwrap().insert(path, result.map(Thumb::Ready).unwrap_or(Thumb::Failed));
-            ctx.request_repaint();
-        });
-        None
+        decoded(&self.thumbs, path, THUMB_SIZE, ctx, rt)
     }
+
+    /// Whether a picture is open inside the section.
+    pub fn viewing(&self) -> bool {
+        self.viewing.is_some()
+    }
+
+    /// Back to the grid.
+    pub fn close(&mut self) {
+        self.viewing = None;
+        self.previous = None;
+        self.large.lock().unwrap().clear();
+    }
+
+    fn view(&mut self, path: PathBuf) {
+        if self.viewing.as_ref() != Some(&path) {
+            self.previous = self.viewing.replace(path.clone());
+            self.changes += 1;
+            // Keep only the two pictures on screen decoded.
+            let keep = [self.previous.clone(), Some(path.clone())];
+            self.large.lock().unwrap().retain(|k, _| keep.iter().flatten().any(|p| p == k));
+        }
+        self.selected = Some(path);
+    }
+}
+
+/// `path` decoded to fit in `max`, from `cache`, or None while it's decoded in the background.
+fn decoded(cache: &Arc<Mutex<HashMap<PathBuf, Thumb>>>, path: &Path, max: (u32, u32), ctx: &egui::Context, rt: &tokio::runtime::Handle) -> Option<TextureHandle> {
+    let mut map = cache.lock().unwrap();
+    match map.get(path) {
+        Some(Thumb::Ready(tex)) => return Some(tex.clone()),
+        Some(_) => return None,
+        None => {}
+    }
+    if map.values().filter(|t| matches!(t, Thumb::Loading)).count() >= MAX_DECODING {
+        ctx.request_repaint_after(Duration::from_millis(50));
+        return None;
+    }
+    map.insert(path.to_path_buf(), Thumb::Loading);
+    let (path, slot, ctx) = (path.to_path_buf(), cache.clone(), ctx.clone());
+    rt.spawn_blocking(move || {
+        let result = image::open(&path).map(|img| {
+            let small = if img.width() > max.0 || img.height() > max.1 { img.thumbnail(max.0, max.1) } else { img }.to_rgba8();
+            let size = [small.width() as usize, small.height() as usize];
+            let color = egui::ColorImage::from_rgba_unmultiplied(size, small.as_raw());
+            ctx.load_texture(format!("{}@{}", path.display(), max.0), color, egui::TextureOptions::LINEAR)
+        });
+        slot.lock().unwrap().insert(path, result.map(Thumb::Ready).unwrap_or(Thumb::Failed));
+        ctx.request_repaint();
+    });
+    None
 }
 
 fn list(dirs: &[(String, PathBuf)]) -> Vec<Shot> {
@@ -134,8 +177,13 @@ fn copy_image(path: &Path) -> std::io::Result<()> {
     std::process::Command::new("wl-copy").args(["--type", "image/png"]).stdin(file).spawn().map(|_| ())
 }
 
+/// When a screenshot was taken, for its caption.
+fn taken(shot: &Shot) -> String {
+    shot.modified.map(|m| chrono::DateTime::<chrono::Local>::from(m).format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default()
+}
+
 pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
-    let t = app.t.clone();
+    let t = app.look.tokens.clone();
     let ctx = ui.ctx().clone();
     let rt = app.rt.clone();
     let all = app.cfg.all_screenshots;
@@ -144,140 +192,92 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
     } else {
         (Scope::One(inst.id.clone()), vec![(inst.id.clone(), inst.screenshots_dir())])
     };
-    let shots = app.shots.sync(&rt, &ctx, scope, dirs).map(<[Shot]>::to_vec);
+    let listed = app.shots.sync(&rt, &ctx, scope, dirs).map(<[Shot]>::to_vec);
     let kb = app.nav_for(Zone::Main);
     let focused = app.focus == Zone::Main;
     let key = |n: Nav| kb == Some(n);
-    let shots = shots.unwrap_or_default();
+    let read = listed.is_some();
+    let shots = listed.unwrap_or_default();
+    let names: HashMap<String, String> = app.instances.iter().map(|i| (i.id.clone(), i.name.clone())).collect();
     let s = &mut app.shots;
+    // A picture that's gone (deleted, or the view changed) closes the viewer.
+    if s.viewing.as_ref().is_some_and(|p| !shots.iter().any(|q| q.path == *p)) && read {
+        s.close();
+    }
     let mut scroll = false;
     if let Some(n) = kb.filter(|n| n.is_move()) {
         let pos = s.selected.as_ref().and_then(|p| shots.iter().position(|q| q.path == *p));
         if let Some(i) = n.step(shots.len(), pos) {
-            s.selected = Some(shots[i].path.clone());
+            if s.viewing.is_some() {
+                s.view(shots[i].path.clone());
+            } else {
+                s.selected = Some(shots[i].path.clone());
+            }
             scroll = true;
         }
     }
     let sel = s.selected.clone().filter(|p| shots.iter().any(|q| q.path == *p));
+    let pos = sel.as_ref().and_then(|p| shots.iter().position(|q| q.path == *p));
+    let viewing = s.viewing.is_some();
+    let owner = |shot: &Shot| names.get(&shot.owner).cloned().unwrap_or_else(|| shot.owner.clone());
 
-    ui.horizontal(|ui| {
-        // Laid out first, from the right, so the file name can't run under them.
-        let mut toggled = key(Nav::Toggle);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if w::button(ui, "folder").clicked() || key(Nav::Folder) {
-                // In the merged view, the selected screenshot's own instance folder.
-                let dir = sel.as_ref().filter(|_| all).and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_else(|| inst.screenshots_dir());
-                super::open_path(&dir);
-            }
-            let mut on = all;
-            if ui.checkbox(&mut on, "all instances").on_hover_text("Show every instance's screenshots here").changed() {
-                toggled = true;
-            }
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                buttons(app, ui, &t, sel.as_ref(), shots.len(), &key);
-            });
-        });
-        if toggled {
-            app.cfg.all_screenshots = !all;
-            if let Err(e) = app.cfg.save() {
-                app.toast(ToastKind::Error, format!("Couldn't save settings: {e}"));
-            }
-        }
-    });
-    ui.add_space(8.0);
-    if shots.is_empty() {
-        // Blank until the first read lands, rather than flashing "no screenshots".
-        if app.shots.list.is_some() {
-            let title = if all { "no screenshots in any instance" } else { "no screenshots yet" };
-            w::empty_state(ui, &t, "󰹑", title, "Press F2 in game to take one.");
-        }
-        return;
+    // The head: how many, the selection's actions, and (on the grid) every instance or this one.
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let n = shots.len();
+    let mut caption = format!("{} / screenshots · {n}", kit::text::number(1));
+    if all {
+        caption = format!("{caption} · every instance");
     }
-
+    let mut buttons = Vec::new();
+    if viewing {
+        let shot = pos.map(|i| &shots[i]);
+        if let (Some(i), Some(shot)) = (pos, shot) {
+            caption = format!("{} / screenshots · {} of {n} · {}", kit::text::number(1), i + 1, taken(shot));
+            if all {
+                caption = format!("{caption} · {}", owner(shot));
+            }
+        }
+        buttons.extend([
+            kit::Button::new("all").icon(glyphs::IMAGES),
+            kit::Button::new("").icon(glyphs::CARET_LEFT).enabled(pos.is_some_and(|i| i > 0)),
+            kit::Button::new("").icon(glyphs::CARET_RIGHT).enabled(pos.is_some_and(|i| i + 1 < n)),
+        ]);
+    } else if sel.is_some() {
+        buttons.push(kit::Button::new("view"));
+    }
+    let first = buttons.len();
+    if sel.is_some() {
+        buttons.extend([kit::Button::new("open"), kit::Button::new("copy"), kit::Button::new("delete")]);
+    }
+    let folder_i = buttons.len();
+    buttons.push(kit::Button::new("folder"));
+    let (clicked, toggled) = head(ui, &t, &caption, (!viewing).then_some(all), &buttons);
+    let pick = |i: usize| clicked == Some(i);
     let s = &mut app.shots;
-    let names: HashMap<&str, &str> = app.instances.iter().map(|i| (i.id.as_str(), i.name.as_str())).collect();
-    let gap = 8.0;
-    let tile_w = 220.0;
-    // Room for the instance's name under each tile in the merged view.
-    let name_size = t.body_size() - 2.0;
-    let caption = if all { name_size + 6.0 } else { 0.0 };
-    let mut clicked = false;
-    egui::ScrollArea::vertical().id_salt("shots").auto_shrink(false).show(ui, |ui| {
-        let cols = ((ui.available_width() + gap) / (tile_w + gap)).floor().max(1.0) as usize;
-        let w_each = (ui.available_width() - gap * (cols as f32 - 1.0)) / cols as f32;
-        let h_each = w_each * 9.0 / 16.0;
-        ui.spacing_mut().item_spacing = vec2(gap, gap);
-        for row in shots.chunks(cols) {
-            ui.horizontal(|ui| {
-                for shot in row {
-                    let path = &shot.path;
-                    let (cell, resp) = ui.allocate_exact_size(vec2(w_each, h_each + caption), Sense::click());
-                    let rect = Rect::from_min_size(cell.min, vec2(w_each, h_each));
-                    if ui.is_rect_visible(cell) {
-                        let p = ui.painter();
-                        p.rect_filled(rect, CornerRadius::ZERO, t.bg_dark);
-                        match s.thumb(path, &ctx, &rt) {
-                            Some(tex) => {
-                                // Fit inside the tile, keeping the aspect ratio.
-                                let [tw, th] = tex.size().map(|v| v as f32);
-                                let scale = (rect.width() / tw).min(rect.height() / th);
-                                let r = Rect::from_center_size(rect.center(), vec2(tw * scale, th * scale));
-                                p.image(tex.id(), r, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                            }
-                            None if matches!(s.thumbs.lock().unwrap().get(path), Some(Thumb::Failed)) => {
-                                p.text(rect.center(), egui::Align2::CENTER_CENTER, "󰋩", egui::FontId::monospace(t.body_size() * 2.0), t.muted);
-                            }
-                            None => {}
-                        }
-                        let on = sel.as_ref() == Some(path);
-                        let stroke = if on && focused {
-                            Stroke::new(3.0, t.accent)
-                        } else if on {
-                            Stroke::new(2.0, t.fg_a(0.7))
-                        } else if resp.hovered() {
-                            Stroke::new(1.0, t.fg_a(0.4))
-                        } else {
-                            Stroke::new(1.0, t.fg_a(0.10))
-                        };
-                        p.rect_stroke(rect, CornerRadius::ZERO, stroke, StrokeKind::Inside);
-                        if all {
-                            let name = names.get(shot.owner.as_str()).copied().unwrap_or(&shot.owner);
-                            let p = p.with_clip_rect(cell);
-                            p.text(egui::pos2(rect.left(), rect.bottom() + 4.0), egui::Align2::LEFT_TOP, name, egui::FontId::monospace(name_size), t.muted);
-                        }
-                    }
-                    if sel.as_ref() == Some(path) && scroll {
-                        resp.scroll_to_me(None);
-                    }
-                    if resp.clicked() {
-                        s.selected = Some(path.clone());
-                        clicked = true;
-                    }
-                    if resp.double_clicked() {
-                        super::open_url(&path.display().to_string());
-                    }
-                }
-            });
+    if viewing {
+        if pick(0) {
+            s.close();
+        } else if let Some(i) = pos.filter(|_| pick(1)).and_then(|i| i.checked_sub(1)) {
+            s.view(shots[i].path.clone());
+        } else if let Some(i) = pos.filter(|&i| pick(2) && i + 1 < n) {
+            s.view(shots[i + 1].path.clone());
         }
-    });
-    if clicked {
-        app.focus = Zone::Main;
+    } else if let Some(p) = &sel
+        && (pick(0) || key(Nav::Activate))
+    {
+        s.view(p.clone());
     }
-}
-
-/// Open, copy and delete for the selection, or the count when there's none.
-fn buttons(app: &mut App, ui: &mut Ui, t: &crate::design::Theme, sel: Option<&PathBuf>, n: usize, key: &dyn Fn(Nav) -> bool) {
-    if let Some(p) = sel {
-        if w::primary_button(ui, t, "open").clicked() || key(Nav::Activate) {
+    if let Some(p) = &sel {
+        if pick(first) || (viewing && key(Nav::Activate)) {
             super::open_url(&p.display().to_string());
         }
-        if w::button(ui, "copy").clicked() || key(Nav::Copy) {
+        if pick(first + 1) || key(Nav::Copy) {
             match copy_image(p) {
                 Ok(()) => app.toasts.push(super::Toast::info("Screenshot copied")),
                 Err(e) => app.toasts.push(super::Toast::error(format!("Couldn't copy: {e}"))),
             }
         }
-        if w::danger_button(ui, t, "delete…").clicked() || key(Nav::Delete) {
+        if pick(first + 2) || key(Nav::Delete) {
             app.modal = Some(Modal::Confirm(Confirm {
                 title: "delete screenshot".into(),
                 body: format!("Delete {}?", p.file_name().unwrap_or_default().to_string_lossy()),
@@ -285,10 +285,127 @@ fn buttons(app: &mut App, ui: &mut Ui, t: &crate::design::Theme, sel: Option<&Pa
                 action: ConfirmAction::DeletePath(p.clone()),
             }));
         }
-        ui.add(egui::Label::new(RichText::new(p.file_name().unwrap_or_default().to_string_lossy()).color(t.muted)).truncate());
-    } else {
-        ui.label(RichText::new(format!("{n} screenshot{}", if n == 1 { "" } else { "s" })).color(t.muted));
     }
+    if pick(folder_i) || key(Nav::Folder) {
+        // In the merged view, the selected screenshot's own instance folder.
+        let dir = sel.as_ref().filter(|_| all).and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_else(|| inst.screenshots_dir());
+        super::open_path(&dir);
+    }
+    if (toggled || key(Nav::Toggle)) && !viewing {
+        app.cfg.all_screenshots = !all;
+        if let Err(e) = app.cfg.save() {
+            app.toast(ToastKind::Error, format!("Couldn't save settings: {e}"));
+        }
+    }
+
+    if !read {
+        padded(ui, |ui| kit::loading(ui, &t, "reading screenshots"));
+        return;
+    }
+    if shots.is_empty() {
+        let title = if all { "No screenshots in any instance" } else { "No screenshots yet" };
+        padded(ui, |ui| kit::empty_state(ui, &t, title, "Press F2 in game to take one.", None));
+        return;
+    }
+    let s = &mut app.shots;
+    if let Some(path) = s.viewing.clone() {
+        view(ui, &t, s, &path, &ctx, &rt);
+        return;
+    }
+    let mut chosen = None;
+    egui::ScrollArea::vertical().id_salt("shots").auto_shrink(false).show(ui, |ui| {
+        padded(ui, |ui| {
+            ui.add_space(tk::GUTTER);
+            let columns = (ui.available_width() / tk::SHOT_TILE_MIN).floor().max(1.0) as usize;
+            let tiles = kit::Tiles { count: shots.len(), columns, aspect: 16.0 / 9.0, selected: pos, hot: pos.filter(|_| focused) };
+            let out = tiles.show(ui, &t, |ui, i, rect| {
+                let shot = &shots[i];
+                match s.thumb(&shot.path, &ctx, &rt) {
+                    Some(tex) => cover(ui, &tex, rect),
+                    None if matches!(s.thumbs.lock().unwrap().get(&shot.path), Some(Thumb::Failed)) => {
+                        kit::text::paint_glyph(ui.painter(), rect.center(), glyphs::IMAGE, crate::design::fonts::icons(tk::ICON_SIZE * 2.0), t.text_muted);
+                    }
+                    None => {}
+                }
+                if all { format!("{} · {}", taken(shot), owner(shot)) } else { taken(shot) }
+            });
+            if scroll && let Some(r) = pos.and_then(|i| out.rects.get(i)) {
+                ui.scroll_to_rect(*r, None);
+            }
+            chosen = out.clicked;
+            ui.add_space(tk::GUTTER);
+        });
+    });
+    // Choosing a screenshot opens it.
+    if let Some(i) = chosen {
+        app.shots.view(shots[i].path.clone());
+        app.focus = Zone::Main;
+    }
+}
+
+/// A texture filling `rect` edge to edge, cropped to its shape (no letterboxing in a tile).
+fn cover(ui: &Ui, tex: &TextureHandle, rect: Rect) {
+    let [tw, th] = tex.size().map(|v| v as f32);
+    let (ta, ra) = (tw / th, rect.width() / rect.height());
+    let uv = if ta > ra {
+        let w = ra / ta;
+        Rect::from_min_max(egui::pos2((1.0 - w) / 2.0, 0.0), egui::pos2((1.0 + w) / 2.0, 1.0))
+    } else {
+        let h = ta / ra;
+        Rect::from_min_max(egui::pos2(0.0, (1.0 - h) / 2.0), egui::pos2(1.0, (1.0 + h) / 2.0))
+    };
+    ui.painter().image(tex.id(), rect, uv, egui::Color32::WHITE);
+}
+
+/// The picture opened large in what was the grid's space, fitted whole and framed by a hairline;
+/// stepping to another crossfades (700ms, no blur or zoom). The thumbnail stands in until the
+/// large one is decoded.
+fn view(ui: &mut Ui, t: &Tokens, s: &ShotsState, path: &Path, ctx: &egui::Context, rt: &tokio::runtime::Handle) {
+    let area = ui.available_rect_before_wrap().shrink2(vec2(tk::GUTTER, 0.0));
+    let area = Rect::from_min_max(egui::pos2(area.left(), area.top() + tk::GUTTER), egui::pos2(area.right(), area.bottom() - tk::GAP));
+    ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
+    let tex = |p: &Path| decoded(&s.large, p, VIEW_SIZE, ctx, rt).or_else(|| s.thumb(p, ctx, rt));
+    let Some(cur) = tex(path) else {
+        if matches!(s.thumbs.lock().unwrap().get(path), Some(Thumb::Failed)) {
+            padded(ui, |ui| kit::body_muted(ui, t, "This picture can't be read."));
+        }
+        return;
+    };
+    let fit = |tex: &TextureHandle| {
+        let [w, h] = tex.size().map(|v| v as f32);
+        let scale = (area.width() / w).min(area.height() / h);
+        Rect::from_center_size(egui::pos2(area.center().x, area.top() + h * scale / 2.0), vec2(w * scale, h * scale))
+    };
+    let r = fit(&cur);
+    let src = |tex: &TextureHandle| egui::ImageSource::Texture(egui::load::SizedTexture::new(tex.id(), tex.size_vec2()));
+    let previous = s.previous.as_deref().and_then(|p| tex(p)).map(|p| src(&p));
+    tiles::crossfade(ui, r, egui::Id::new(("shot-view", s.changes)), previous, src(&cur));
+    kit::rule::frame(ui.painter(), r.expand(tk::LINE), t.line_strong);
+}
+
+/// The tab's head: a caption on the left; on the right the joined buttons and, on the grid, the
+/// "all instances" switch before them. Returns the button clicked and whether the switch was.
+fn head(ui: &mut Ui, t: &Tokens, caption: &str, all: Option<bool>, buttons: &[kit::Button]) -> (Option<usize>, bool) {
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(vec2(width, tk::BUTTON_HEIGHT + tk::GAP * 2.0), egui::Sense::hover());
+    let inner = rect.shrink2(vec2(tk::GUTTER, 0.0));
+    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    row.spacing_mut().item_spacing.x = tk::UNIT;
+    let clicked = kit::button_row(&mut row, t, buttons);
+    let mut toggled = false;
+    if let Some(on) = all {
+        row.add_space(tk::GUTTER - tk::UNIT);
+        toggled = kit::switch(&mut row, t, on, true, false, "all instances").clicked();
+        toggled |= kit::caption(&mut row, t, "all instances").interact(egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked();
+    }
+    let used = inner.right() - row.min_rect().left();
+    let mut job = kit::text::caption_job(caption, t.text_muted);
+    job.wrap.max_width = (inner.width() - used - tk::GUTTER).max(0.0);
+    job.wrap.max_rows = 1;
+    let g = ui.painter().layout_job(job);
+    ui.painter().galley(egui::pos2(inner.left(), rect.center().y - g.size().y / 2.0), g, t.text_muted);
+    kit::rule::hline(ui.painter(), rect.x_range(), rect.bottom() - 0.5, t.line_strong);
+    (clicked, toggled)
 }
 
 #[cfg(test)]

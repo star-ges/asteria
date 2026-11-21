@@ -200,13 +200,6 @@ pub fn button(ui: &mut Ui, label: &str) -> Response {
     ui.add(egui::Button::new(label)).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// The width a row of plain `button`s takes, spacing included, so a layout can tell whether they fit beside its text.
-pub fn buttons_width(ui: &Ui, labels: &[&str]) -> f32 {
-    let s = ui.spacing();
-    let text: f32 = labels.iter().map(|l| egui::WidgetText::from(*l).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button).size().x).sum();
-    text + labels.len() as f32 * (2.0 * s.button_padding.x + s.item_spacing.x)
-}
-
 pub fn danger_button(ui: &mut Ui, t: &Theme, label: &str) -> Response {
     ui.add(egui::Button::new(RichText::new(label).color(t.red)).stroke(Stroke::new(1.0, Theme::alpha(t.red, 0.6))))
         .on_hover_cursor(egui::CursorIcon::PointingHand)

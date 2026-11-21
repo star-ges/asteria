@@ -980,7 +980,9 @@ impl App {
                 }
             }
             Action::Back => {
-                if self.inst_tab == InstTab::Overview && self.version.picker_open() {
+                if self.inst_tab == InstTab::Screenshots && self.shots.viewing() {
+                    self.shots.close();
+                } else if self.inst_tab == InstTab::Overview && self.version.picker_open() {
                     self.version.close();
                     self.focus = Zone::Main;
                 } else if self.focus != Zone::List {
