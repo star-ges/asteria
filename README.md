@@ -1,6 +1,6 @@
 # Asteria
 
-![Asteria showing an instance's mods beside Modrinth search](docs/screenshots/Title%20Screenshot.png)
+![The Asteria launcher in light mode: an instance called Singleplayer, its mods tab open beside the instance list.](docs/screenshots/singleplayer-mods.png)
 
 A Minecraft launcher in Rust for Linux, modeled on [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher)
 and drawn in the StarShell design language: big type, hairlines, a calm palette and one accent.
@@ -79,16 +79,21 @@ To remove it, delete those three files; your data is in `~/.local/share/asteria`
   sure it is, quoting the lines in the crash report or log that say so. Unmet dependencies, failed mixins,
   mods for the wrong loader or Java, and out-of-memory or graphics-driver crashes are explained in plain
   words. Disable the suspect right there, or copy a summary for a bug report.
+
+  ![Asteria's crash analysis of a failed launch: Zoomify named with certainty because it needs YetAnotherConfigLib, quoting the loader's own error lines.](docs/screenshots/crash-analysis.png)
+
 - **Find breaking mod**: `b` in the mods tab (or the crash analysis) turns about half the mods off at
   a time, always keeping each mod's dependencies on. You play and say whether the problem occurred, and a
   few games later Asteria names the mod, then puts everything back exactly as it was, even after a crash
   halfway through.
 
-  ![Find breaking mod](docs/screenshots/find%20the%20breaking%20mod.png)
+  ![Asteria's search for a breaking mod at step 2 of about 8: 36 suspects left, 30 of 72 mods switched on, with buttons to answer or to stop and put the mods back.](docs/screenshots/find-breaking-mod.png)
 
 - **Updates you can undo**: `u` in the mods tab updates every mod from Modrinth, `shift+u` just one. Before
   anything changes, Asteria backs up `mods`, `config` and any world without a recent backup. `z` rolls the
   mods back and offers to restore each world that was played with the newer ones.
+
+  ![Asteria's mod updates: a table of installed and newer versions, an Update 37 mods button, and Roll back beside the mods.](docs/screenshots/updates.png)
 
 ### Configs without leaving the launcher
 
@@ -105,19 +110,22 @@ To remove it, delete those three files; your data is in `~/.local/share/asteria`
   meanwhile is never overwritten without asking, nothing unsaved is lost on the way out, and settings
   shown as fields have "restore defaults".
 
-  ![Config editor](docs/screenshots/config%20editor.png)
+  ![Asteria's configuration editor on Create's client config: switches, sliders with their default marks, and a number field, each with its hints.](docs/screenshots/config-editor.png)
 
 - **Mod sets**: save the mods as they are as a named set ("performance", "full pack") and switch between
   sets in one step from the mods tab (`s`). Edit a set as a checklist without touching the mods folder;
   ticking a mod ticks what it needs. Updates keep a mod in its sets, and newly added mods join the set in use.
 
-  ![Mod sets](docs/screenshots/mod%20sets.png)
+  ![Asteria's mod sets for Singleplayer: Everyday (active), Performance only and Recording, with Recording's checklist showing a mod that turns off.](docs/screenshots/mod-sets.png)
 
 ### Worlds that stay safe
 
 - **Backups**: each world a game played is backed up when it exits (the last 5 by default). The worlds tab
   backs up, restores or deletes by hand, and worlds you deleted stay listed by their backups. Restoring
   backs up what's there first.
+
+  ![Asteria's worlds tab: The Estate selected, with its backups taken after play and by hand, in a world set shared by two instances.](docs/screenshots/backups.png)
+
 - **Play records**: each world remembers which instance last played it, on which Minecraft version and with
   which mods. Before any instance starts, a world last played with a mod it lacks, a newer version of one
   or a newer Minecraft is backed up first.
@@ -169,26 +177,25 @@ For more details, see [How Asteria handles game files](#how-asteria-handles-game
   JVM args, Java, wrapper command (`prime-run`, `gamemoderun`…), window size, icon, group and notes. Libraries, assets and runtimes are shared
   between instances. Collapsible, coloured groups; drag instances between them, or press `g`.
 
-  ![Instances](docs/screenshots/instances.png)
+  ![Asteria's instance list in four coloured groups (Everyday, Modded, Modpacks, Vanilla), with Create selected: NeoForge 1.21.1, 17 hours played, and a note of base and factory coordinates.](docs/screenshots/instances.png)
 
 - **Loaders**: vanilla (every release and snapshot), Fabric, Quilt, Forge and NeoForge. Forge 1.13+
   and NeoForge patch the game on the first launch of each build, so that launch takes a minute longer.
 
-  ![Loaders](docs/screenshots/loaders.png)
-
 - **Modrinth**: search and install mods, resource packs and shader packs, with dependencies resolved.
   Installed items show their name, icon and version.
 
-  ![Modrinth](docs/screenshots/modrinth.png)
+  ![Asteria's installed mods beside a Modrinth search for Distant Horizons, its result opened with Install and Modrinth page buttons.](docs/screenshots/modrinth.png)
 
 - **Import**: browse Modrinth modpacks right in the import dialog and pick any version, or import Prism,
   PolyMC and MultiMC instances (found automatically, or from a `.zip` or folder), a `.mrpack` or a
   modrinth.com modpack link. On btrfs, even huge instances import instantly.
 
-  ![Import](docs/screenshots/import.png)
-
 - **Export**: a Modrinth pack (`.mrpack`) or an instance zip that Prism, PolyMC and MultiMC open.
   You choose which folders go in.
+
+  ![Asteria's export dialog: Modrinth pack format, a pack version, and a checklist of folders to include with their sizes.](docs/screenshots/export.png)
+
 - **Each instance's page**, beside the instance list, has six sections: **overview** (version, loader
   and notes), **mods & packs** (mods, resource packs, shader packs), **configs**, **worlds** (open one
   directly on 1.20+, rename, duplicate, delete, backups; and servers: edit the list, join directly),
@@ -197,7 +204,7 @@ For more details, see [How Asteria handles game files](#how-asteria-handles-game
 - **Accounts and skins**: Microsoft and offline accounts. A 3D preview of each skin and cape; upload a
   skin, switch between classic and slim arms, reset it, or pick a cape you own.
 
-  ![Accounts and skins](docs/screenshots/accounts%20and%20skins.png)
+  ![Asteria's accounts page: the account ASTERPHD with its skin shown in 3D, slim arms, and three owned capes with none worn.](docs/screenshots/accounts.png)
 
 ## Where Prism is still the better pick
 
