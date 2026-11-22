@@ -365,7 +365,14 @@ pub fn bar(app: &mut App, ui: &mut Ui, inst: &Instance, found: Option<(&[Entry],
                 let fix = if modified { kit::text::caption_galley(ui, "modified", t.text_muted).size().x + tk::GAP + if show_fixes { row_w(&fixes) + tk::GAP } else { 0.0 } } else { 0.0 };
                 kit::text::caption_galley(ui, "mod set", t.text_muted).size().x + tk::GAP + name + tk::GAP + fix
             }
-            None => tk::LIST_TITLE_MIN * 2.0,
+            // What the line says (below): "None" whole; "None chosen · n saved" truncates, so it
+            // needs only a short start of itself.
+            None => {
+                let what = if sets.sets.is_empty() { "None".to_string() } else { format!("None chosen · {} saved", sets.sets.len()) };
+                let w = ui.painter().layout_no_wrap(what, crate::design::fonts::text(tk::SIZE_BODY), t.text_muted).size().x;
+                let w = if sets.sets.is_empty() { w } else { w.min(tk::LIST_TITLE_MIN) };
+                kit::text::caption_galley(ui, "mod set", t.text_muted).size().x + tk::GAP + w
+            }
         };
         // Too narrow for both sides on one line: the sets and the search go on a line of their own.
         let one_line = left_w + tk::GUTTER + row_w(&tools) <= ui.available_width();
