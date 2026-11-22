@@ -77,46 +77,48 @@ pub fn show(app: &mut App, s: &mut ExportDialog, ui: &mut Ui) -> Option<Result<R
         Format::Mrpack => "Mods and packs that Modrinth hosts are listed as downloads; everything else is bundled in the pack. Opens in Asteria, Prism and the Modrinth App.",
         Format::Zip => "A full copy of the chosen files, with the instance's settings and icon. Opens in Asteria, Prism, PolyMC and MultiMC, and works offline.",
     };
-    kit::setting_group(ui, &t, 1, "Format", "", |ui| {
-        SettingRow::new("Format").description(explain).show(ui, &t, |ui| {
-            kit::segmented(ui, &t, &mut s.format, &[(Format::Zip, "instance zip"), (Format::Mrpack, "modrinth pack")]);
-        });
-        if s.format == Format::Mrpack {
-            SettingRow::new("Pack version").caption("shown by launchers that import it").show(ui, &t, |ui| {
-                let w = ui.available_width().min(tk::SETTING_CONTROL_WIDTH);
-                kit::Field::new(&mut s.version).hint("1.0.0").width(w).show(ui, &t);
-            });
-        }
-    });
-
-    // What goes in: the game folder's entries, ticked by default as the format suggests.
-    let aside = match &s.entries {
-        Some(list) => {
-            let (n, size) = list.iter().filter(|(_, on)| *on).fold((0, 0), |(n, b), (e, _)| (n + 1, b + e.size));
-            format!("{n} of {} · {} before compression", list.len(), kit::text::size_label(size))
-        }
-        None => "measuring".into(),
-    };
-    kit::SectionLabel::new(2, "include").aside(&aside).show(ui, &t);
+    // The settings, the label and the list scroll as one, so the foot stays in view however
+    // short the window.
     let foot = tk::LINE + tk::GAP + tk::BUTTON_HEIGHT + tk::GUTTER * 2.0;
-    match &mut s.entries {
-        None => padded(ui, |ui| {
-            kit::loading(ui, &t, "measuring the game folder");
-        }),
-        Some(list) if list.is_empty() => padded(ui, |ui| {
-            kit::loading(ui, &t, "the game folder is empty");
-        }),
-        Some(list) => {
-            let moved = nav.filter(|n| n.is_move());
-            if let Some(n) = moved {
-                s.cursor = n.step(list.len(), Some(s.cursor)).unwrap_or(0);
+    egui::ScrollArea::vertical().id_salt("export-body").max_height((ui.available_height() - foot).max(tk::TABLE_ROW_HEIGHT)).auto_shrink([false, true]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        kit::setting_group(ui, &t, 1, "Package", "", |ui| {
+            SettingRow::new("Format").description(explain).show(ui, &t, |ui| {
+                kit::segmented(ui, &t, &mut s.format, &[(Format::Zip, "instance zip"), (Format::Mrpack, "modrinth pack")]);
+            });
+            if s.format == Format::Mrpack {
+                SettingRow::new("Pack version").caption("shown by launchers that import it").show(ui, &t, |ui| {
+                    let w = ui.available_width().min(tk::SETTING_CONTROL_WIDTH);
+                    kit::Field::new(&mut s.version).hint("1.0.0").width(w).show(ui, &t);
+                });
             }
-            s.cursor = s.cursor.min(list.len() - 1);
-            if key(Nav::Toggle) {
-                list[s.cursor].1 ^= true;
+        });
+
+        // What goes in: the game folder's entries, ticked by default as the format suggests.
+        let aside = match &s.entries {
+            Some(list) => {
+                let (n, size) = list.iter().filter(|(_, on)| *on).fold((0, 0), |(n, b), (e, _)| (n + 1, b + e.size));
+                format!("{n} of {} · {} before compression", list.len(), kit::text::size_label(size))
             }
-            egui::ScrollArea::vertical().id_salt("export-entries").max_height((ui.available_height() - foot).max(tk::TABLE_ROW_HEIGHT * 3.0)).auto_shrink([false, true]).show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
+            None => "measuring".into(),
+        };
+        kit::SectionLabel::new(2, "include").aside(&aside).show(ui, &t);
+        match &mut s.entries {
+            None => padded(ui, |ui| {
+                kit::loading(ui, &t, "measuring the game folder");
+            }),
+            Some(list) if list.is_empty() => padded(ui, |ui| {
+                kit::loading(ui, &t, "the game folder is empty");
+            }),
+            Some(list) => {
+                let moved = nav.filter(|n| n.is_move());
+                if let Some(n) = moved {
+                    s.cursor = n.step(list.len(), Some(s.cursor)).unwrap_or(0);
+                }
+                s.cursor = s.cursor.min(list.len() - 1);
+                if key(Nav::Toggle) {
+                    list[s.cursor].1 ^= true;
+                }
                 for (i, (e, on)) in list.iter_mut().enumerate() {
                     let name = if e.is_dir { format!("{}/", e.name) } else { e.name.clone() };
                     let size = kit::text::size_label(e.size);
@@ -130,9 +132,9 @@ pub fn show(app: &mut App, s: &mut ExportDialog, ui: &mut Ui) -> Option<Result<R
                         s.cursor = i;
                     }
                 }
-            });
+            }
         }
-    }
+    });
 
     ui.add_space(tk::GUTTER);
     let ready = s.entries.is_some() && !busy;

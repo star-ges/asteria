@@ -58,6 +58,9 @@ pub struct Scatter {
     pub right_limit: f32,
     pub seed: u64,
     pub compact: bool,
+    /// What the list is drawn within (a scroll area's view): a star it would cut is left out,
+    /// rather than showing only its tips.
+    pub clip: Rect,
 }
 
 impl Scatter {
@@ -91,6 +94,10 @@ impl Scatter {
             if r.right() > self.right_limit || r.left() < self.left_limit {
                 continue;
             }
+            // Drifting in, it starts lower down.
+            if !self.clip.contains_rect(r.with_max_y(r.max.y + tk::IMAGERY_DRIFT)) {
+                continue;
+            }
             let five = rand(self.seed, i, 3) >= 0.7;
             let points = if five { 5 } else { 4 };
             let inner = if five { tk::STAR_INNER_RATIO * 2.0 } else { tk::STAR_INNER_RATIO };
@@ -100,6 +107,27 @@ impl Scatter {
             let scale = tk::IMAGERY_START_SCALE + (1.0 - tk::IMAGERY_START_SCALE) * s;
             let center = r.center() + vec2(0.0, tk::IMAGERY_DRIFT * (1.0 - s));
             paint_star(out, center, r.width() / 2.0 * scale, points, inner, rotation, tk::alpha_of(color, s * color.a() as f32 / 255.0), outlined);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A row at a scroll area's edge shows whole stars or none: never a star cut down to its tips.
+    #[test]
+    fn stars_a_scroll_area_would_cut_are_left_out() {
+        let row = Rect::from_min_size(pos2(0.0, 100.0), vec2(1000.0, 56.0));
+        for seed in 0..200u64 {
+            let clip = Rect::from_min_max(pos2(0.0, 100.0), pos2(1000.0, 400.0));
+            let s = Scatter { row, text_left: 40.0, text_right: 200.0, left_limit: 0.0, right_limit: 1000.0, seed, compact: true, clip };
+            let mut out = Vec::new();
+            s.paint(&mut out, Color32::RED, Color32::BLACK, |_| 1.0);
+            for shape in &out {
+                let b = shape.visual_bounding_rect();
+                assert!(clip.expand(1.0).contains_rect(b), "seed {seed}: a star at {b:?} is cut by {clip:?}");
+            }
         }
     }
 }

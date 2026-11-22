@@ -390,8 +390,7 @@ pub fn history(app: &mut App, ui: &mut Ui, inst: &Instance) {
     if ui.available_width() < tk::CONTENT_TWO_PANES {
         // Too narrow for both: one pane at a time, the one with the keyboard (h/l still switch).
         let mut side = focus == Zone::Side;
-        padded(ui, |ui| ui.horizontal(|ui| kit::segmented(ui, &t, &mut side, &[(false, "files"), (true, "log")])));
-        ui.add_space(tk::GAP);
+        super::content::pane_switch(ui, &t, app.tab_line.take(), &mut side, ["files", "log"]);
         if side {
             reader(app, ui, &files, &sel, view_nav, mods_busy, &mut out);
             out.to_side |= focus != Zone::Side;

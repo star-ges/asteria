@@ -63,7 +63,11 @@ say "Installing…"
 # Copy beside the old binary and rename over it, so a running Asteria keeps working.
 install -Dm755 "$src/target/release/asteria" "$BIN_DIR/.asteria.new"
 mv -f "$BIN_DIR/.asteria.new" "$BIN_DIR/asteria"
-install -Dm644 "$src/packaging/asteria.desktop" "$SHARE_DIR/applications/asteria.desktop"
+# The entry names the binary by its full path: a desktop session's PATH often lacks ~/.local/bin
+# (the shell adds it, the compositor and its launcher don't), and then a bare `asteria` won't start.
+mkdir -p "$SHARE_DIR/applications"
+sed "s#^Exec=asteria#Exec=$BIN_DIR/asteria#" "$src/packaging/asteria.desktop" > "$SHARE_DIR/applications/.asteria.desktop.new"
+mv -f "$SHARE_DIR/applications/.asteria.desktop.new" "$SHARE_DIR/applications/asteria.desktop"
 install -Dm644 "$src/packaging/asteria.svg" "$SHARE_DIR/icons/hicolor/scalable/apps/asteria.svg"
 # Asteria continues Omacraft: replace its app (never its data, which Asteria moves over
 # on its first start and links back, so an Omacraft still running keeps working).

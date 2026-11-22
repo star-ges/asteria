@@ -294,6 +294,9 @@ pub const CONFIG_FILES_MIN: f32 = 220.0;
 pub const CONFIG_FILES_MAX: f32 = 360.0;
 /// A config list's rows before it starts folded.
 pub const CONFIG_LIST_FOLD: usize = 6;
+/// Below this height the instance page leaves out its spec strip, so a short window still shows
+/// the open tab (the loader and version stay in the caption line; the sets are in edit).
+pub const PAGE_SPEC_MIN_HEIGHT: f32 = 640.0;
 /// Below this width the content tab shows installed and Modrinth one at a time.
 pub const CONTENT_TWO_PANES: f32 = 760.0;
 /// The version columns of the found-updates table.

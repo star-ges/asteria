@@ -312,7 +312,8 @@ pub fn empty_state(ui: &mut Ui, t: &Tokens, title: &str, hint: &str, action: Opt
     if !hint.is_empty() {
         ui.add_space(tk::UNIT);
         ui.scope(|ui| {
-            ui.set_max_width(tk::SETTING_DESCRIPTION_WIDTH);
+            // Capped, never widened: a plain `set_max_width` pushed a narrow pane's contents past it.
+            ui.set_max_width(ui.available_width().min(tk::SETTING_DESCRIPTION_WIDTH));
             text::body_muted(ui, t, hint);
         });
     }
@@ -349,6 +350,23 @@ mod tests {
                 });
                 // The body goes on where the caption left off, never back up over it.
                 assert!(after >= before, "the body's cursor moved up from {before} to {after}");
+            });
+        }
+    }
+
+    /// A pane narrower than the hint's width (the accounts at 760px) keeps its width: the
+    /// hint wraps inside it instead of pushing the pane's later rows and rules past its edge.
+    #[test]
+    fn an_empty_state_never_widens_a_narrow_pane() {
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            crate::design::test_frame(&ctx, 0.0, |ui| {
+                let t = Tokens::new(false);
+                let rect = Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(300.0, 600.0));
+                let mut pane = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                empty_state(&mut pane, &t, "No accounts yet", &"a long hint that has to wrap ".repeat(8), None);
+                assert!(pane.min_rect().right() <= rect.right() + 0.5, "the pane grew to {}", pane.min_rect().right());
+                assert!(pane.available_width() <= rect.width() + 0.5, "later rows would be {} wide", pane.available_width());
             });
         }
     }

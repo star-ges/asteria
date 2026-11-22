@@ -74,8 +74,8 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
         buttons.extend([
             kit::Button::new("join"),
             kit::Button::new("edit"),
-            kit::Button::new("").icon(glyphs::ARROW_UP).enabled(i > 0),
-            kit::Button::new("").icon(glyphs::ARROW_DOWN).enabled(i + 1 < n),
+            kit::Button::new("").named("move up").icon(glyphs::ARROW_UP).enabled(i > 0),
+            kit::Button::new("").named("move down").icon(glyphs::ARROW_DOWN).enabled(i + 1 < n),
             kit::Button::new("remove"),
         ]);
     }

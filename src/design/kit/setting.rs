@@ -228,9 +228,14 @@ impl<'a> SettingRow<'a> {
         let used = ui.ctx().data(|d| d.get_temp::<egui::Vec2>(row_id));
         let control_left = control_right - column.max(used.map_or(0.0, |u| u.x));
         let label_x = full.left() + tk::SETTING_INDENT;
-        let label_w = (control_left - tk::GUTTER - label_x).max(40.0);
-        let p = ui.painter();
         let label_font = if self.dense { fonts::text(tk::SIZE_BODY) } else { fonts::heading(tk::SIZE_HEADING_SMALL) };
+        // A row too narrow for its label beside the control puts the control under it (dense
+        // rows, the configs editor's many, keep to one line and truncate).
+        let label_natural = ui.painter().layout_no_wrap(self.label.to_string(), label_font.clone(), egui::Color32::PLACEHOLDER).size().x;
+        let stacked = !self.dense && label_natural > control_left - tk::GUTTER - label_x;
+        let control_left = if stacked { label_x } else { control_left };
+        let label_w = if stacked { control_right - label_x } else { (control_left - tk::GUTTER - label_x).max(40.0) };
+        let p = ui.painter();
         // Laid out in the placeholder colour, so painting it can take the hot colour.
         let mut label_job = egui::text::LayoutJob::simple_singleline(self.label.to_string(), label_font, egui::Color32::PLACEHOLDER);
         label_job.wrap.max_width = label_w;
@@ -260,13 +265,18 @@ impl<'a> SettingRow<'a> {
         let labels_h = label_g.size().y + under_h;
         let min_h = if self.dense { tk::SETTING_ROW_HEIGHT - tk::GAP * 2.0 } else { tk::SETTING_ROW_HEIGHT };
         let control_h = used.map_or(0.0, |u| u.y);
-        let h = min_h.max(labels_h + tk::GAP * 2.0).max(control_h + tk::GAP * 2.0);
+        let h = if stacked {
+            labels_h + tk::UNIT + control_h + tk::GAP * 2.0
+        } else {
+            min_h.max(labels_h + tk::GAP * 2.0).max(control_h + tk::GAP * 2.0)
+        };
         let (rect, resp) = ui.allocate_exact_size(vec2(full.width(), h), Sense::hover());
         let resp = match self.id {
             Some(_) => ui.interact(rect, row_id.with("row"), Sense::hover()),
             None => resp,
         };
-        let control_rect = Rect::from_min_max(egui::pos2(control_left, rect.top() + tk::GAP), egui::pos2(control_right, rect.bottom() - tk::GAP));
+        let control_top = if stacked { rect.top() + tk::GAP + labels_h + tk::UNIT } else { rect.top() + tk::GAP };
+        let control_rect = Rect::from_min_max(egui::pos2(control_left, control_top), egui::pos2(control_right, rect.bottom() - tk::GAP));
         let mut child = ui.new_child(UiBuilder::new().max_rect(control_rect).layout(Layout::right_to_left(Align::Center)).id_salt(row_id.with("control")));
         child.spacing_mut().item_spacing.x = tk::GAP;
         let out = control(&mut child);
@@ -281,7 +291,7 @@ impl<'a> SettingRow<'a> {
         rule::hline(p, (rect.left() + tk::GUTTER)..=rect.right(), rect.top() + 0.5, t.line);
         let label_c = motion::color(ui.ctx(), row_id.with("label"), hot, t.text_strong, t.accent);
         let top = rect.top() + tk::GAP.max((h - labels_h) / 2.0).min(h / 2.0);
-        let top = if control_h > labels_h { rect.top() + tk::GAP } else { top };
+        let top = if stacked || control_h > labels_h { rect.top() + tk::GAP } else { top };
         p.galley(egui::pos2(label_x, top), label_g.clone(), label_c);
         let mut y = top + label_g.size().y;
         for g in under {

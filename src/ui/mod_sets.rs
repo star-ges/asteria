@@ -734,7 +734,7 @@ pub fn sets_dialog(app: &mut App, s: &mut SetsDialog, ui: &mut Ui) -> bool {
                 super::content::padded(ui, |ui| kit::loading(ui, &t, "reading the mods"));
             }
             Some(_) => {
-                egui::ScrollArea::vertical().id_salt("mod-set-mods").max_height((ui.available_height() - below).max(tk::TABLE_ROW_HEIGHT * 3.0)).auto_shrink([false, true]).show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("mod-set-mods").max_height((ui.available_height() - below).max(tk::TABLE_ROW_HEIGHT)).auto_shrink([false, true]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     if rows.is_empty() {
                         super::content::padded(ui, |ui| kit::loading(ui, &t, if s.filter.is_empty() { "no mods installed" } else { "no mods match the filter" }));

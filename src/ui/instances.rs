@@ -431,6 +431,7 @@ fn detail(app: &mut App, ui: &mut Ui, inst: &Instance) {
     // The spec strip, the search banner and the section tabs share their hairlines: no
     // spacing between them (the header sets it to 0 before the strip).
     let spacing = ui.spacing().item_spacing.y;
+    app.tab_line = None;
     header(app, ui, inst);
     // The search banner, when there is one, shares the spec strip's line and the tabs' line.
     super::mod_sets::banner(app, ui, inst);
@@ -507,6 +508,8 @@ fn sections(app: &mut App, ui: &mut Ui) {
         egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: tk::GAP as i8, bottom: 0 }).show(ui, |ui| {
             ui.horizontal(|ui| {
                 kit::segmented(ui, &t, &mut app.inst_tab, leaves);
+                let row = ui.min_rect();
+                app.tab_line = Some(egui::Rect::from_min_max(egui::pos2(row.right() + tk::GUTTER, row.top()), egui::pos2(ui.max_rect().right(), row.bottom())));
             });
         });
     }
@@ -519,6 +522,7 @@ fn header(app: &mut App, ui: &mut Ui, inst: &Instance) {
     let disk = app.sizes.get(inst, &app.rt, ui.ctx());
     let hue = app.groups.color(&inst.group).and_then(|c| t.named(c));
     let width = ui.available_width();
+    let short = ui.available_height() < tk::PAGE_SPEC_MIN_HEIGHT;
     egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: tk::GAP as i8, bottom: tk::GAP as i8 }).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = tk::GAP;
@@ -553,6 +557,12 @@ fn header(app: &mut App, ui: &mut Ui, inst: &Instance) {
             });
         });
     });
+    ui.spacing_mut().item_spacing.y = 0.0;
+    if short {
+        // The tabs' line closes the header instead of the strip's.
+        kit::rule(ui, &t, true);
+        return;
+    }
     let none = "—";
     let played = instance::format_duration(inst.played_secs);
     let last = kit::text::ago(inst.last_played);
@@ -572,7 +582,6 @@ fn header(app: &mut App, ui: &mut Ui, inst: &Instance) {
     ];
     // As many cells as fit, about 110px each; the first ones matter most.
     let fit = ((width / 110.0) as usize).clamp(3, cells.len());
-    ui.spacing_mut().item_spacing.y = 0.0;
     if kit::spec_strip(ui, &t, &cells[..fit]).is_some() {
         app.modal = Some(Modal::Edit(Box::new(EditState::from(inst))));
     }
@@ -714,7 +723,7 @@ pub fn edit(app: &mut App, s: &mut EditState, ui: &mut Ui) -> EditOutcome {
     let sets = Kind::ALL.map(|k| app.all_sets(k));
     let foot = tk::LINE + tk::GAP + tk::BUTTON_HEIGHT + tk::GUTTER;
     let control = |ui: &Ui| ui.available_width().min(tk::SETTING_CONTROL_WIDTH);
-    egui::ScrollArea::vertical().id_salt("edit-instance").max_height((ui.available_height() - foot).max(tk::SETTING_ROW_HEIGHT * 3.0)).auto_shrink([false, true]).show(ui, |ui| {
+    egui::ScrollArea::vertical().id_salt("edit-instance").max_height((ui.available_height() - foot).max(tk::TABLE_ROW_HEIGHT)).auto_shrink([false, true]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         kit::setting_group(ui, &t, 1, "Instance", "", |ui| {
             SettingRow::new("Name").show(ui, &t, |ui| {

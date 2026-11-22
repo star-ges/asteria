@@ -239,8 +239,8 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance) {
         }
         buttons.extend([
             kit::Button::new("all").icon(glyphs::IMAGES),
-            kit::Button::new("").icon(glyphs::CARET_LEFT).enabled(pos.is_some_and(|i| i > 0)),
-            kit::Button::new("").icon(glyphs::CARET_RIGHT).enabled(pos.is_some_and(|i| i + 1 < n)),
+            kit::Button::new("").named("previous screenshot").icon(glyphs::CARET_LEFT).enabled(pos.is_some_and(|i| i > 0)),
+            kit::Button::new("").named("next screenshot").icon(glyphs::CARET_RIGHT).enabled(pos.is_some_and(|i| i + 1 < n)),
         ]);
     } else if sel.is_some() {
         buttons.push(kit::Button::new("view"));

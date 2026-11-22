@@ -1745,7 +1745,7 @@ fn list_widget(ui: &mut Ui, t: &Tokens, items: &[Scalar], wid: egui::Id, id: &st
         for (i, it) in items.iter().enumerate() {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = tk::UNIT;
-                if Button::new("").icon(glyphs::X).show(ui, t).on_hover_text("remove").clicked() {
+                if Button::new("").named("remove").icon(glyphs::X).show(ui, t).on_hover_text("remove").clicked() {
                     let mut v2 = items.to_vec();
                     v2.remove(i);
                     new = Some(v2);

@@ -466,6 +466,25 @@ impl ContentState {
 }
 
 /// Pads `add` to the page's gutter (the content panes run edge to edge; text beside them doesn't).
+/// The switch between two panes shown one at a time (too narrow for both): at the right of
+/// the section's sub-tab line when it fits there, else on a line of its own. True when changed.
+/// `tab_line` is `App::tab_line`, taken.
+pub(super) fn pane_switch(ui: &mut Ui, t: &Tokens, tab_line: Option<egui::Rect>, side: &mut bool, labels: [&str; 2]) -> bool {
+    let opts = [(false, labels[0]), (true, labels[1])];
+    let need: f32 = opts.iter().map(|(_, l)| kit::Button::new(l).width(ui, t)).sum();
+    match tab_line.filter(|r| r.width() >= need) {
+        Some(room) => {
+            let mut row = ui.new_child(egui::UiBuilder::new().max_rect(room).layout(Layout::right_to_left(Align::Center)));
+            kit::segmented(&mut row, t, side, &opts)
+        }
+        None => {
+            let changed = padded(ui, |ui| ui.horizontal(|ui| kit::segmented(ui, t, side, &opts)).inner);
+            ui.add_space(tk::GAP);
+            changed
+        }
+    }
+}
+
 pub fn padded<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::new().inner_margin(egui::Margin { left: tk::GUTTER as i8, right: tk::GUTTER as i8, top: 0, bottom: 0 }).show(ui, add).inner
 }
@@ -614,14 +633,14 @@ pub fn show(app: &mut App, ui: &mut Ui, inst: &Instance, kind: ContentKind) {
             }
         }
     }
+    let tab_line = app.tab_line.take();
     let s = app.content.kinds.entry(kind).or_default();
     // Installed on the left, Modrinth on the right, a hairline between: each pane runs from
     // its edge, so hover rows reach the line.
     if ui.available_width() < tk::CONTENT_TWO_PANES {
         // Too narrow for both: one pane at a time, the one with the keyboard (h/l still switch).
         let mut side = zone == Zone::Side;
-        padded(ui, |ui| ui.horizontal(|ui| kit::segmented(ui, &t, &mut side, &[(false, "installed"), (true, "modrinth")])));
-        ui.add_space(tk::GAP);
+        pane_switch(ui, &t, tab_line, &mut side, ["installed", "modrinth"]);
         if side {
             browse(ui, &t, s, &meta, &remote, inst, kind, &rt, &ctx, focus, side_nav, zone == Zone::Side, blocked, &mut out);
             out.to_results |= zone != Zone::Side;

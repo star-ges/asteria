@@ -243,7 +243,10 @@ pub fn hints(app: &App) -> Vec<(String, &'static str)> {
             h.extend([(l(FocusLeft), "back"), (p(PrevTab, NextTab), "tabs")]);
         }
     }
-    h.push((l(Play), "play"));
+    // The list plays with its own key already; one "play" is enough.
+    if !h.iter().any(|(_, what)| *what == "play") {
+        h.push((l(Play), "play"));
+    }
     h
 }
 

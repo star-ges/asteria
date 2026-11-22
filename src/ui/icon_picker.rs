@@ -86,7 +86,7 @@ pub fn show(app: &mut App, s: &mut IconPicker, ui: &mut Ui) -> bool {
 
     let foot = tk::LINE + tk::GAP + tk::BUTTON_HEIGHT + tk::GUTTER * 2.0;
     let scroll = std::mem::take(&mut s.scroll);
-    egui::ScrollArea::vertical().id_salt("icons").max_height((ui.available_height() - foot).max(tk::ICON_TILE * 2.0)).auto_shrink([false, true]).show(ui, |ui| {
+    egui::ScrollArea::vertical().id_salt("icons").max_height((ui.available_height() - foot).max(tk::TABLE_ROW_HEIGHT)).auto_shrink([false, true]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         kit::SectionLabel::new(1, "built in").aside(&builtin.len().to_string()).show(ui, &t);
         ui.add_space(tk::GAP);

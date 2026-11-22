@@ -24,15 +24,23 @@ pub struct Button<'a> {
     min_width: f32,
     /// The label keeps its case (a key).
     key: bool,
+    /// What a screen reader calls an icon-only button (it has no label to read).
+    name: &'a str,
 }
 
 impl<'a> Button<'a> {
     pub fn new(label: &'a str) -> Self {
-        Self { label, icon: None, filled: false, danger: false, checked: false, enabled: true, hot: false, min_width: 0.0, key: false }
+        Self { label, icon: None, filled: false, danger: false, checked: false, enabled: true, hot: false, min_width: 0.0, key: false, name: label }
     }
 
     /// An icon before the label, or alone in a square button with an empty label (then it's
     /// the label: play, stop, arrows).
+    /// An icon-only button (`Button::new("").icon(..)`) with `name` for screen readers.
+    pub fn named(mut self, name: &'a str) -> Self {
+        self.name = name;
+        self
+    }
+
     pub fn icon(mut self, glyph: &'a str) -> Self {
         self.icon = Some(glyph);
         self
@@ -146,7 +154,7 @@ impl<'a> Button<'a> {
         if self.enabled {
             resp.clone().on_hover_cursor(CursorIcon::PointingHand);
         }
-        let label = self.label.to_string();
+        let label = if self.label.is_empty() { self.name } else { self.label }.to_string();
         let (enabled, checked) = (self.enabled, self.checked);
         resp.widget_info(|| {
             if checked { egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, true, &label) } else { egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label) }

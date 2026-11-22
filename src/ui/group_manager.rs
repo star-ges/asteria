@@ -228,7 +228,7 @@ fn group_page(app: &mut App, s: &mut GroupManager, ui: &mut Ui, t: &Tokens, name
         let i = app.groups.list.iter().position(|g| g.name == name).unwrap_or(0);
         let n = app.groups.list.len();
         SettingRow::new("Place").caption(&format!("{} of {n} in the list", i + 1)).show(ui, t, |ui| {
-            let clicked = kit::button_row(ui, t, &[Button::new("").icon(glyphs::ARROW_UP).enabled(i > 0), Button::new("").icon(glyphs::ARROW_DOWN).enabled(i + 1 < n)]);
+            let clicked = kit::button_row(ui, t, &[Button::new("").named("move up").icon(glyphs::ARROW_UP).enabled(i > 0), Button::new("").named("move down").icon(glyphs::ARROW_DOWN).enabled(i + 1 < n)]);
             if (clicked == Some(0) || key(Nav::MoveUp)) && i > 0 {
                 app.groups.list.swap(i, i - 1);
                 app.save_groups();

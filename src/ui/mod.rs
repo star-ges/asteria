@@ -241,6 +241,9 @@ pub struct App {
     content_rect: Rect,
     /// The pane files dropped now would go into, as last drawn (an instance tab's body).
     pub drop_rect: Option<Rect>,
+    /// The room at the right of the open section's sub-tab line, this frame (a narrow tab's
+    /// pane switch goes there: `content::pane_switch`).
+    pub tab_line: Option<Rect>,
     /// Which dialog is open, and a number new each time one opens (so each rises in).
     modal_open: Option<(std::mem::Discriminant<Modal>, u64)>,
 }
@@ -303,6 +306,7 @@ impl App {
             toasts: Vec::new(),
             content_rect: egui_ctx.content_rect(),
             drop_rect: None,
+            tab_line: None,
             modal_open: None,
         };
         app.load_manifest(egui_ctx);

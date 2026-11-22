@@ -413,6 +413,7 @@ impl HoverList {
                 right_limit: if preview.is_some() || badge_g_present(&row) || trail_w > 0.0 { end_x - tk::GAP } else { rect.right() },
                 seed: id.value(),
                 compact: v == Variant::Compact,
+                clip: ui.clip_rect(),
             };
             let n = scatter.count();
             let shown: Vec<f32> = (0..n)

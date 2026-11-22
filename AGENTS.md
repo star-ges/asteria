@@ -96,7 +96,14 @@ asteria list | import <zip|mrpack|folder|url> | export <inst> <file> | reclaim  
 - **Rows:** things you choose from are `kit::HoverList` rows (selected = the wash, hot = the keyboard's row while
   its pane has the keys); lists you work through are `QuietRow`s; settings are `SettingRow`s; data is a quiet table.
   - Panes side by side open with heads of the same height (`content::pane_head`'s `min_h`), so their rules are one line.
+  - Shown one at a time (narrower than `CONTENT_TWO_PANES`), a tab's two panes switch with `content::pane_switch`: at
+    the right of the section's sub-tab line when it fits (`App::tab_line`), else on a line of its own.
   - Scroll to the selection only after a keyboard move, never every frame.
+- **Short and narrow windows** (760×480 is the minimum): below `PAGE_SPEC_MIN_HEIGHT` the instance page leaves out
+  its spec strip. A sheet's foot (its buttons) always stays in view: what's above it scrolls, floored at one row's
+  height, never more. A setting row too narrow for its label beside the control puts the control under it (dense rows
+  truncate instead). Stars a scroll area would cut are left out (`stars::tests::stars_a_scroll_area_would_cut_are_left_out`).
+  Icon-only buttons are `Button::new("").named(..)`, so screen readers have a name.
 - **Keyboard:** the screen has zones (`Zone::List/Main/Side`).
   - `App::keys` turns key presses into a `Nav` through the `Keymap`.
   - Each pane takes it with `app.nav_for(zone)` and acts on it like its buttons do (`|| key(Nav::X)`), so mouse and keyboard can't drift apart.
