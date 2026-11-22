@@ -62,10 +62,11 @@ git clone https://github.com/star-ges/asteria
 cd asteria
 cargo build --release
 install -Dm755 target/release/asteria ~/.local/bin/asteria
-install -Dm644 packaging/asteria.desktop ~/.local/share/applications/asteria.desktop
+sed "s#^Exec=asteria#Exec=$HOME/.local/bin/asteria#" packaging/asteria.desktop > ~/.local/share/applications/asteria.desktop
 install -Dm644 packaging/asteria.svg ~/.local/share/icons/hicolor/scalable/apps/asteria.svg
 ```
 
+The desktop entry names the binary by its full path, since a desktop session's `PATH` often lacks `~/.local/bin`.
 To remove it, delete those three files; your data is in `~/.local/share/asteria` and `~/.config/asteria`.
 
 </details>
@@ -95,14 +96,14 @@ To remove it, delete those three files; your data is in `~/.local/share/asteria`
   - **minecraft** is the game's own `options.txt`, named and grouped like its menus (video, sound,
     controls, chat…), with key bindings set by pressing the key.
   - **mods** edits each mod's TOML, JSON and JSON5 settings as switches, sliders and choices, with the
-    mod's own descriptions, ranges and defaults; other files edit as text. `c` or the cog on a mod in the
+    mod's own descriptions, ranges and defaults; other files edit as text. `c` or a mod's `configs` link in the
     mods tab goes straight to its files.
   - **shaders** shows each shader pack's options and profiles with the pack's own names, menus and
     sliders, saved where Iris and OptiFine read them, and "use this pack" switches to it.
 
   Saving changes only the values you touched, so comments and layout survive. A file the game rewrote
-  meanwhile is never overwritten without asking, nothing unsaved is lost on the way out, and every file
-  has "restore defaults".
+  meanwhile is never overwritten without asking, nothing unsaved is lost on the way out, and settings
+  shown as fields have "restore defaults".
 
   ![Config editor](docs/screenshots/config%20editor.png)
 
@@ -139,7 +140,8 @@ For more details, see [How Asteria handles game files](#how-asteria-handles-game
 
 - **Light and dark**: follows your desktop's colour scheme (the XDG portal setting GNOME, KDE and
   StarShell all set) and changes with it.
-- **Keyboard first**: `h`/`l` move between panes and `j`/`k` within them, `enter` does the obvious
+- **Keyboard first**: `h`/`l` move between panes and `j`/`k` within them, `[`/`]` step through an
+  instance's tabs, `enter` does the obvious
   thing (play, join, install, open) and `p` plays from anywhere. The bottom bar shows the keys for the
   focused pane, `?` lists them all, and every key can be rebound in **settings → keys** or in `config.toml`:
   ```toml
@@ -152,7 +154,7 @@ For more details, see [How Asteria handles game files](#how-asteria-handles-game
   Nothing already there is ever replaced.
 - **CLI**, for compositor key binds and scripts:
   ```
-  asteria list                 # grouped like the sidebar; tab-separated when piped
+  asteria list                 # grouped like the instance list; tab-separated when piped
   asteria launch <instance>
   asteria create <name> <version> [fabric|quilt|forge|neoforge]
   asteria mod add <instance> <modrinth-slug>
@@ -187,9 +189,11 @@ For more details, see [How Asteria handles game files](#how-asteria-handles-game
 
 - **Export**: a Modrinth pack (`.mrpack`) or an instance zip that Prism, PolyMC and MultiMC open.
   You choose which folders go in.
-- **Per-instance tabs**: version and loader, live game log, mods, resource packs, shader packs, configs,
-  notes, worlds (open one directly on 1.20+, rename, duplicate, delete, backups), servers (edit the list,
-  join directly), screenshots (just this instance's, or every instance's at once) and past logs and crash reports.
+- **Each instance's page**, beside the instance list, has six sections: **overview** (version, loader
+  and notes), **mods & packs** (mods, resource packs, shader packs), **configs**, **worlds** (open one
+  directly on 1.20+, rename, duplicate, delete, backups; and servers: edit the list, join directly),
+  **screenshots** (just this instance's, or every instance's at once) and **logs** (the live log, past logs
+  and crash reports).
 - **Accounts and skins**: Microsoft and offline accounts. A 3D preview of each skin and cape; upload a
   skin, switch between classic and slim arms, reset it, or pick a cape you own.
 
@@ -242,9 +246,10 @@ Exports always contain real files, never links, so a shared instance exports lik
 | What | How |
 |---|---|
 | Light and dark | The XDG desktop portal's `org.freedesktop.appearance color-scheme`, watched live |
+| Motion | GNOME's `enable-animations` through the same portal: off means no animations |
 | Window | Wayland app-id `asteria`, for window rules. Decorated: compositors that draw no title bar (Hyprland) give it none, others give it their usual one |
 | File pickers | The XDG desktop portal |
-| Type | Switzer and Melodrama ([Fontshare](https://www.fontshare.com), free, not bundled: their licence forbids it) found through fontconfig, else your system's sans-serif and a note in Settings. JetBrains Mono for logs, the system's or a bundled copy |
+| Type | Switzer and Melodrama ([Fontshare](https://www.fontshare.com), free, not bundled: their licence forbids it) found through fontconfig, else your system's sans-serif and a note in Settings. JetBrains Mono for logs, the config editor's text mode and keys, the system's or a bundled copy |
 | Icons in the UI | Phosphor (bundled) |
 
 ## Coming from Omacraft
@@ -277,6 +282,7 @@ Prism alone, so don't borrow it.
   instances/<id>/instance.toml
   instances/<id>/minecraft/        game dir (mods/, saves/, …)
   instances/<id>/mod_sets.toml     mod sets
+  instances/<id>/bisect.toml       a search for the breaking mod, while one runs
   groups.toml                      group order and colours
   icons/                           your own instance icons
   shared/sets/<set>/               share sets' packs and schematics
@@ -309,7 +315,7 @@ licenses cover trademarks: the names and logos belong to their projects, and Ast
 `assets/fonts/Phosphor.ttf` and `Phosphor-Bold.ttf` are [Phosphor Icons](https://phosphoricons.com) 2.1.2
 (`@phosphor-icons/web`, MIT, see `Phosphor-LICENSE`). `assets/fonts/JetBrainsMono-Regular.ttf` is
 [JetBrains Mono](https://www.jetbrains.com/lp/mono/) 2.304 (SIL Open Font License 1.1, see `JetBrainsMono-OFL.txt`),
-the fallback for logs when the system has no JetBrains Mono.
+the fallback for logs, config text and keys when the system has no JetBrains Mono.
 
 ## License
 
